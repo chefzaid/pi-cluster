@@ -1,0 +1,105 @@
+# Longhorn Pi4-Optimized Settings
+# Apply after Longhorn is installed:
+#   kubectl apply -f longhorn-pi4-settings.yaml
+#
+# These are Longhorn Setting CRs that override defaults for Raspberry Pi 4 clusters.
+# Optimized for: 4-node Pi4 cluster with limited CPU/RAM/IO.
+
+---
+# Reduce replica count from 3 to 2 (saves storage and IO on small clusters)
+apiVersion: longhorn.io/v1beta2
+kind: Setting
+metadata:
+  name: default-replica-count
+  namespace: longhorn-system
+value: "2"
+
+---
+# Allow replicas on same node if needed (soft constraint)
+apiVersion: longhorn.io/v1beta2
+kind: Setting
+metadata:
+  name: replica-soft-anti-affinity
+  namespace: longhorn-system
+value: "true"
+
+---
+# Auto-balance replicas across nodes
+apiVersion: longhorn.io/v1beta2
+kind: Setting
+metadata:
+  name: replica-auto-balance
+  namespace: longhorn-system
+value: "best-effort"
+
+---
+# Lower minimum available storage (Pi4 has smaller disks)
+apiVersion: longhorn.io/v1beta2
+kind: Setting
+metadata:
+  name: storage-minimal-available-percentage
+  namespace: longhorn-system
+value: "15"
+
+---
+# Reduce guaranteed CPU for instance managers (Pi4 has only 4 cores)
+apiVersion: longhorn.io/v1beta2
+kind: Setting
+metadata:
+  name: guaranteed-instance-manager-cpu
+  namespace: longhorn-system
+value: "5"
+
+---
+# Limit concurrent engine upgrades per node (reduce IO pressure)
+apiVersion: longhorn.io/v1beta2
+kind: Setting
+metadata:
+  name: concurrent-automatic-engine-upgrade-per-node-limit
+  namespace: longhorn-system
+value: "1"
+
+---
+# Limit concurrent replica rebuilds per node (reduce IO pressure)
+apiVersion: longhorn.io/v1beta2
+kind: Setting
+metadata:
+  name: concurrent-replica-rebuild-per-node-limit
+  namespace: longhorn-system
+value: "1"
+
+---
+# Limit concurrent volume backup/restore per node
+apiVersion: longhorn.io/v1beta2
+kind: Setting
+metadata:
+  name: concurrent-volume-backup-restore-per-node-limit
+  namespace: longhorn-system
+value: "1"
+
+---
+# Enable fast replica rebuild (less IO overhead)
+apiVersion: longhorn.io/v1beta2
+kind: Setting
+metadata:
+  name: fast-replica-rebuild-enabled
+  namespace: longhorn-system
+value: "true"
+
+---
+# Delete pods when node goes down (faster recovery)
+apiVersion: longhorn.io/v1beta2
+kind: Setting
+metadata:
+  name: node-down-pod-deletion-policy
+  namespace: longhorn-system
+value: "delete-both-statefulset-and-deployment-pod"
+
+---
+# Default data path
+apiVersion: longhorn.io/v1beta2
+kind: Setting
+metadata:
+  name: default-data-path
+  namespace: longhorn-system
+value: "/var/lib/longhorn"

@@ -1,0 +1,18 @@
+# K3s config optimized for Raspberry Pi 4 cluster
+# Place at /etc/rancher/k3s/config.yaml on the control plane node
+
+# Resource management for Pi4 (4GB RAM)
+kubelet-arg:
+  - "eviction-hard=memory.available<200Mi,nodefs.available<10%"
+  - "eviction-soft=memory.available<500Mi,nodefs.available<15%"
+  - "eviction-soft-grace-period=memory.available=1m30s,nodefs.available=1m30s"
+  - "kube-reserved=cpu=200m,memory=256Mi"
+  - "system-reserved=cpu=200m,memory=256Mi"
+  - "max-pods=50"
+  - "node-status-update-frequency=10s"
+
+kube-controller-manager-arg:
+  - "node-monitor-period=5s"
+  - "node-monitor-grace-period=40s"
+
+write-kubeconfig-mode: "0644"
