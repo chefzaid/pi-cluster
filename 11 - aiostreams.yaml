@@ -1,13 +1,13 @@
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: stremio
+  name: aiostreams
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: aiostreams
-  namespace: stremio
+  namespace: aiostreams
 spec:
   replicas: 1
   selector:
@@ -50,7 +50,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: aiostreams-service
-  namespace: stremio
+  namespace: aiostreams
 spec:
   selector:
     app: aiostreams

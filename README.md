@@ -161,7 +161,7 @@ How it works:
 - After entering the code, the user gets a session cookie and can access Guacamole
 - No passwords to manage - Cloudflare handles authentication before traffic ever reaches your cluster
 
-> **Tip:** You can also protect other apps (Open WebUI, Stremio) the same way by adding more Access applications.
+> **Tip:** You can also protect other apps (Open WebUI, AIOStreams) the same way by adding more Access applications.
 
 ### 7. Deploy workloads
 
@@ -169,7 +169,7 @@ How it works:
 kubectl apply -f guacamole.yaml
 kubectl apply -f openwebui.yaml
 kubectl apply -f ollama.yaml
-kubectl apply -f stremio.yaml
+kubectl apply -f aiostreams.yaml
 ```
 
 ### 8. (If needed) Flannel fix
@@ -200,7 +200,7 @@ sudo bash flannel-fix-install.sh 10.42.3.1/24 # pi-node-04
 | 08 | `guacamole.yaml` | Guacamole + guacd, Longhorn PVC (`guacamole-pvc`, 1Gi) |
 | 09 | `openwebui.yaml` | Open WebUI, Longhorn PVC (`open-webui-pvc`, 2Gi) |
 | 10 | `ollama.yaml` | Ollama LLM server, local-path PVC (20Gi) |
-| 11 | `stremio.yaml` | AIOStreams (stateless) |
+| 11 | `aiostreams.yaml` | AIOStreams (stateless) |
 | 12 | `flannel-fix-install.sh` | *(If needed)* Install systemd fix for flannel subnet.env issue |
 
 > **Note:** Secrets (`guacamole-config`, `cloudflared-config`, `aiostreams-config`) are created manually on the cluster and not stored in these files.
