@@ -16,12 +16,14 @@
 ### 1. Install K3s on the control plane
 
 ```bash
-# Copy files to pi-node-01
-scp -r . zaid@192.168.1.191:~/k8s-deployment/
-
-# SSH into pi-node-01
+# Clone the repo on pi-node-01
 ssh zaid@192.168.1.191
-cd ~/k8s-deployment
+# On the Pi:
+git clone https://github.com/chefzaid/pi-cluster.git
+cd pi-cluster
+
+# (To update in the future:)
+# git pull
 
 # Install K3s (outputs join token)
 sudo bash install-k3s.sh
@@ -34,11 +36,13 @@ Save the **join token** printed at the end.
 On each worker Pi:
 
 ```bash
-# Copy the script
-scp install-k3s.sh zaid@192.168.1.192:~/
-
-# SSH in and join
+# Clone the repo on each worker
 ssh zaid@192.168.1.192
+# On the Pi:
+git clone https://github.com/chefzaid/pi-cluster.git
+cd pi-cluster
+
+# Install as worker
 sudo bash install-k3s.sh worker 192.168.1.191 <TOKEN>
 ```
 
@@ -155,7 +159,7 @@ How it works:
 - The user enters their email address
 - If the email matches your allow list, Cloudflare sends a **6-digit OTP** to that email
 - After entering the code, the user gets a session cookie and can access Guacamole
-- No passwords to manage — Cloudflare handles authentication before traffic ever reaches your cluster
+- No passwords to manage - Cloudflare handles authentication before traffic ever reaches your cluster
 
 > **Tip:** You can also protect other apps (Open WebUI, Stremio) the same way by adding more Access applications.
 
