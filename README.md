@@ -135,8 +135,6 @@ This makes your apps accessible at:
 - `https://ai.yourdomain.com`
 - `https://aiostreams.yourdomain.com`
 
-> **Guacamole note:** In the route settings, set **Path** to `/guacamole/` or enable **No TLS Verify** if needed. Guacamole serves under the `/guacamole/` prefix by default.
-
 #### e) Protect Guacamole with Cloudflare Access (email OTP)
 
 Add a one-time-password gate so only authorized users can reach Guacamole:
@@ -155,13 +153,11 @@ Add a one-time-password gate so only authorized users can reach Guacamole:
 5. Click **Next** → **Add application**
 
 How it works:
-- When someone visits `https://remote.yourdomain.com/guacamole/`, Cloudflare shows a login page
+- When someone visits `https://remote.yourdomain.com`, Cloudflare shows a login page
 - The user enters their email address
 - If the email matches your allow list, Cloudflare sends a **6-digit OTP** to that email
 - After entering the code, the user gets a session cookie and can access Guacamole
 - No passwords to manage - Cloudflare handles authentication before traffic ever reaches your cluster
-
-> **Tip:** You can also protect other apps (Open WebUI, AIOStreams) the same way by adding more Access applications.
 
 ### 7. Deploy workloads
 
