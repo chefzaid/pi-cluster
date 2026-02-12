@@ -100,11 +100,11 @@ spec:
           mountPath: /config
         resources:
           requests:
-            memory: "256Mi"
-            cpu: "100m"
+            memory: "192Mi"
+            cpu: "75m"
           limits:
-            memory: "512Mi"
-            cpu: "500m"
+            memory: "384Mi"
+            cpu: "400m"
         readinessProbe:
           httpGet:
             path: /guacamole/
