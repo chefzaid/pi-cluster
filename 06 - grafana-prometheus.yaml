@@ -125,6 +125,8 @@ metadata:
   namespace: monitoring
 spec:
   replicas: 1
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app: prometheus
@@ -158,11 +160,9 @@ spec:
             requests:
               memory: "128Mi"
               cpu: "50m"
-              ephemeral-storage: "128Mi"
             limits:
               memory: "384Mi"
               cpu: "300m"
-              ephemeral-storage: "512Mi"
           readinessProbe:
             httpGet:
               path: /-/ready
@@ -245,11 +245,9 @@ spec:
             requests:
               memory: "32Mi"
               cpu: "25m"
-              ephemeral-storage: "32Mi"
             limits:
               memory: "64Mi"
               cpu: "100m"
-              ephemeral-storage: "128Mi"
       volumes:
         - name: rootfs
           hostPath:
@@ -297,6 +295,7 @@ data:
     datasources:
       - name: Prometheus
         type: prometheus
+        uid: prometheus
         access: proxy
         url: http://prometheus-service.monitoring.svc.cluster.local:9090
         isDefault: true
@@ -473,6 +472,8 @@ metadata:
   namespace: monitoring
 spec:
   replicas: 1
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app: grafana
@@ -513,11 +514,9 @@ spec:
             requests:
               memory: "128Mi"
               cpu: "50m"
-              ephemeral-storage: "64Mi"
             limits:
               memory: "256Mi"
               cpu: "250m"
-              ephemeral-storage: "256Mi"
           readinessProbe:
             httpGet:
               path: /api/health

@@ -1,7 +1,130 @@
+# 10 - openwebui.yaml
+# Open-WebUI for AI Chat Interface
+#
+# ARM64/Raspberry Pi 4 Compatibility:
+# - v0.7.2 with onnxruntime==1.20.1 fix (init container)
+# - v0.8.0+ has torch SIGILL issue (unfixable without custom build)
+#
+# Create secret BEFORE applying:
+#   kubectl create secret generic ai-keys -n ai \
+#     --from-literal=GEMINI_API_KEY=<your-gemini-api-key>
+
 apiVersion: v1
 kind: Namespace
 metadata:
   name: ai
+---
+# Secret template - DO NOT commit real API keys!
+# Create manually with kubectl command above
+apiVersion: v1
+kind: Secret
+metadata:
+  name: ai-keys
+  namespace: ai
+type: Opaque
+stringData:
+  GEMINI_API_KEY: "REPLACE_WITH_YOUR_KEY"    # Use kubectl create secret instead
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: open-webui
+  namespace: ai
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate    # PVC requires single attachment
+  selector:
+    matchLabels:
+      app: open-webui
+  template:
+    metadata:
+      labels:
+        app: open-webui
+    spec:
+      initContainers:
+      # Fix onnxruntime SIGILL on ARM64
+      - name: fix-onnxruntime
+        image: ghcr.io/open-webui/open-webui:v0.7.2
+        command:
+        - /bin/bash
+        - -c
+        - |
+          echo "Installing onnxruntime==1.20.1 to fix ARM64 SIGILL..."
+          pip install --no-cache-dir onnxruntime==1.20.1 --target=/onnx-fix
+          echo "Done. Copying to shared volume..."
+          cp -r /onnx-fix/* /site-packages/
+        volumeMounts:
+        - name: onnx-fix
+          mountPath: /site-packages
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "250m"
+          limits:
+            memory: "1Gi"
+            cpu: "1000m"
+      containers:
+      - name: open-webui
+        image: ghcr.io/open-webui/open-webui:v0.7.2
+        ports:
+        - containerPort: 8080
+        env:
+        # Prepend the fixed onnxruntime to Python path
+        - name: PYTHONPATH
+          value: "/app/backend/site-packages:/app/backend"
+        - name: OPENAI_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: ai-keys
+              key: GEMINI_API_KEY
+        - name: OPENAI_API_BASE_URL
+          value: "https://generativelanguage.googleapis.com/v1beta/openai"
+        - name: WEBUI_SECRET_KEY
+          value: "your-secret-key-here"
+        volumeMounts:
+        - name: data
+          mountPath: /app/backend/data
+        - name: onnx-fix
+          mountPath: /app/backend/site-packages
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "250m"
+          limits:
+            memory: "2Gi"
+            cpu: "1000m"
+        # Relaxed probes for Pi4 ARM64
+        startupProbe:
+          httpGet:
+            path: /
+            port: 8080
+          initialDelaySeconds: 120
+          periodSeconds: 30
+          timeoutSeconds: 10
+          failureThreshold: 20
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 15
+          timeoutSeconds: 10
+          failureThreshold: 10
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 8080
+          initialDelaySeconds: 120
+          periodSeconds: 60
+          timeoutSeconds: 15
+          failureThreshold: 5
+      volumes:
+      - name: data
+        persistentVolumeClaim:
+          claimName: open-webui-pvc
+      - name: onnx-fix
+        emptyDir: {}
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim
@@ -14,58 +137,7 @@ spec:
   storageClassName: longhorn
   resources:
     requests:
-      storage: 2Gi
----
-apiVersion: apps/v1
-kind: StatefulSet
-metadata:
-  name: open-webui
-  namespace: ai
-spec:
-  serviceName: "open-webui"
-  replicas: 1
-  selector:
-    matchLabels:
-      app: open-webui
-  template:
-    metadata:
-      labels:
-        app: open-webui
-    spec:
-      containers:
-      - name: open-webui
-        image: ghcr.io/open-webui/open-webui:main
-        ports:
-        - containerPort: 8080
-        env:
-        - name: OLLAMA_BASE_URL
-          value: ""            # no local LLM - Pi4 4GB is too slow; use OpenAI/Anthropic API instead
-        volumeMounts:
-        - name: webui-data
-          mountPath: /app/backend/data
-        resources:
-          requests:
-            memory: "192Mi"
-            cpu: "75m"
-          limits:
-            memory: "768Mi"
-            cpu: "750m"
-        readinessProbe:
-          httpGet:
-            path: /
-            port: 8080
-          initialDelaySeconds: 30
-          periodSeconds: 10
-        livenessProbe:
-          httpGet:
-            path: /
-            port: 8080
-          initialDelaySeconds: 60
-          periodSeconds: 30
-      volumes:
-      - name: webui-data
-        persistentVolumeClaim:
-          claimName: open-webui-pvc
+      storage: 5Gi
 ---
 apiVersion: v1
 kind: Service
@@ -76,6 +148,26 @@ spec:
   selector:
     app: open-webui
   ports:
-  - protocol: TCP
-    port: 80
+  - port: 80
     targetPort: 8080
+  type: ClusterIP
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: open-webui-ingress
+  namespace: ai
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: web
+spec:
+  rules:
+  - host: openwebui.local
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: open-webui-service
+            port:
+              number: 80

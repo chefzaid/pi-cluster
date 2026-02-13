@@ -11,6 +11,23 @@
 | pi-node-03 | Worker        | 192.168.1.193   |
 | pi-node-04 | Worker        | 192.168.1.194   |
 
+## Local Network Access
+
+All services are accessible on your local network via `.local` domains (requires mDNS/Avahi or adding entries to your hosts file):
+
+| Service      | URL                         | Description                             |
+|--------------|-----------------------------|-----------------------------------------|
+| Longhorn     | `http://longhorn.local`     | Distributed storage dashboard           |
+| Grafana      | `http://grafana.local`      | Monitoring dashboards                   |
+| AdGuard      | `http://adguard.local`      | DNS ad blocker admin UI                 |
+| Open WebUI   | `http://openwebui.local`    | AI chat frontend (Gemini, OpenAI, etc.) |
+| OpenClaw     | `http://openclaw.local`     | AI assistant gateway                    |
+| Guacamole    | `http://guacamole.local`    | Remote desktop gateway (RDP/VNC/SSH)    |
+| AIOStreams   | `http://aiostreams.local`   | Stremio addon aggregator                |
+| Dashboard    | `http://dashboard.local`    | Cluster services dashboard (Homepage)   |
+
+> **Note:** These domains resolve to cluster ingress IPs (192.168.1.191-194). If your router doesn't support mDNS, add entries to your local machine's hosts file pointing to any node IP.
+
 ## Quick Start (Full Cluster Setup)
 
 ### 1. Install K3s on the control plane
@@ -154,7 +171,8 @@ In the Cloudflare dashboard, go to your tunnel → **Public Hostname** tab → *
 | `ai`           | `swirlit.dev` | HTTP    | `open-webui-service.ai.svc.cluster.local:80`            |
 | `assistant`    | `swirlit.dev` | HTTP    | `openclaw-service.openclaw.svc.cluster.local:80`        |
 | `aiostreams`   | `swirlit.dev` | HTTP    | `aiostreams-service.aiostreams.svc.cluster.local:80`    |
-| `dashboard`    | `swirlit.dev` | HTTP    | `dashboard-service.dashboard.svc.cluster.local:80`        |
+| `dashboard`    | `swirlit.dev` | HTTP    | `dashboard-service.dashboard.svc.cluster.local:80`      |
+| `grafana`      | `swirlit.dev` | HTTP    | `grafana-service.monitoring.svc.cluster.local:80`       |
 
 This makes your apps accessible at:
 - `https://remote.swirlit.dev`
@@ -162,6 +180,7 @@ This makes your apps accessible at:
 - `https://assistant.swirlit.dev`
 - `https://aiostreams.swirlit.dev`
 - `https://dashboard.swirlit.dev`
+- `https://grafana.swirlit.dev`
 
 #### e) Protect internet-exposed apps with Cloudflare Access (email OTP)
 
@@ -200,6 +219,15 @@ Repeat the same steps:
 
 > **Why this matters:** Dashboard shows pod names, namespaces, health status, and internal URLs. While read-only, this gives an attacker a detailed map of your cluster. Protect it.
 
+##### Grafana (recommended - metrics and monitoring)
+
+Repeat the same steps:
+- **Application name:** `Grafana`
+- **Subdomain:** `grafana` | **Domain:** `swirlit.dev`
+- Use the same policy (Email OTP with your email)
+
+> **Why this matters:** Grafana displays cluster metrics, resource usage, and potentially sensitive infrastructure data. The default admin credentials are well-known (`admin`/`admin`). Protect it with OTP before exposing to the internet.
+
 ##### AIOStreams (optional - low risk)
 
 AIOStreams is stateless and contains no credentials beyond what's in its addon configuration. You can still add Cloudflare Access if you want, using the same steps with subdomain `aiostreams`.
@@ -228,7 +256,7 @@ kubectl apply -f "14 - dashboard.yaml"
 
 #### 8a) Guacamole - remote desktop gateway
 
-Apache Guacamole provides browser-based access to your machines via RDP, VNC, and SSH. Access it at `https://remote.swirlit.dev`.
+Guacamole provides browser-based access to your machines via RDP, VNC, and SSH. Uses the `jwetzell/guacamole` all-in-one image (ARM64 compatible - the official Apache images don't support ARM64). Access it at `https://remote.swirlit.dev`.
 
 ##### First login & replacing the default admin
 
@@ -337,7 +365,17 @@ For **RDP** connections, the keyboard layout must match the Windows input langua
 
 #### 8b) Open WebUI - AI chat frontend
 
-Open WebUI is a ChatGPT-like interface that connects to cloud LLM APIs. Access it at `https://ai.swirlit.dev`.
+Open WebUI is a ChatGPT-like interface that connects to cloud LLM APIs. Access it at `https://ai.swirlit.dev` or `http://openwebui.local` on LAN.
+
+> **ARM64 Compatibility:** Running **v0.7.2** with `onnxruntime==1.20.1` fix (init container). v0.8.0+ has unfixable `torch` SIGILL on ARM64.
+
+##### Create the API key secret
+
+Before deploying, create the secret with your Gemini API key:
+
+```bash
+kubectl create secret generic ai-keys -n ai --from-literal=GEMINI_API_KEY=<your-key>
+```
 
 ##### First login
 
@@ -534,9 +572,9 @@ Enable **Parallel requests** - AdGuard queries all upstream servers simultaneous
 
 ---
 
-#### 8f) Dashboard - cluster dashboard
+#### 8f) Dashboard - cluster dashboard (Homepage)
 
-Dashboard is a unified dashboard showing all your services with live health status. It auto-discovers pods via the Kubernetes API and shows green/red indicators.
+Homepage is a unified dashboard showing all your services with live health status. It auto-discovers pods via the Kubernetes API and shows green/red indicators.
 
 Dashboard: `http://dashboard.local` (LAN) or `https://dashboard.swirlit.dev` (internet, protected by Cloudflare Access)
 
@@ -554,29 +592,29 @@ All configuration lives in the `dashboard-config` ConfigMap in [14 - dashboard.y
 2. Re-apply: `kubectl apply -f "14 - dashboard.yaml"`
 3. The pod auto-reloads config within a few seconds
 
-To add a new service, add an entry under the appropriate group in `services.yaml`. See the [Dashboard docs](https://getdashboard.dev/configs/services/) for all options.
+To add a new service, add an entry under the appropriate group in `services.yaml`. See the [Homepage docs](https://gethomepage.dev/configs/services/) for all options.
 
 > **Tip:** Replace `swirlit.dev` in the `services.yaml` section with your actual domain so the links work.
 
 ## File Reference
 
-| #  | File                         | Purpose                                                                        |
-|----|------------------------------|--------------------------------------------------------------------------------|
-| 01 | `01 - install-k3s.sh`        | Install K3s control plane or join as worker node                               |
-| 02 | `02 - k3s-config.yaml`       | K3s server config: eviction thresholds, reserved resources, max-pods           |
-| 02b | `flannel-fix-install.sh`    | *(If needed)* Install systemd fix for flannel subnet.env issue                 |
-| 03 | `03 - longhorn-install.sh`   | Install Longhorn via `kubectl apply` (no Helm)                                 |
-| 04 | `04 - longhorn-pi4-settings.yaml` | Longhorn Setting CRs optimized for Pi4 (2 replicas, low CPU, fast rebuild) |
-| 05 | `05 - longhorn-ingress.yaml` | Traefik ingress for Longhorn UI at `longhorn.local`                            |
-| 06 | `06 - grafana-prometheus.yaml` | Prometheus + Grafana + Node Exporter, Longhorn PVCs (5Gi + 1Gi)              |
-| 07 | `07 - install-vnc-desktop.sh` | Install XFCE4 + TigerVNC + Firefox (required for Guacamole)                   |
-| 08 | `08 - cloudflare.yaml`       | Cloudflared tunnel deployment (2 replicas with anti-affinity)                  |
-| 09 | `09 - guacamole.yaml`        | Guacamole + guacd, Longhorn PVC (`guacamole-pvc`, 1Gi)                         |
-| 10 | `10 - openwebui.yaml`        | Open WebUI for cloud LLM APIs, Longhorn PVC (`open-webui-pvc`, 2Gi)            |
-| 11 | `11 - openclaw.yaml`         | OpenClaw AI assistant gateway, Longhorn PVC (`openclaw-pvc`, 2Gi)              |
-| 12 | `12 - aiostreams.yaml`       | AIOStreams (stateless)                                                         |
-| 13 | `13 - adguard.yaml`          | AdGuard Home DNS, Longhorn PVCs (`adguard-work-pvc` 1Gi, `conf` 256Mi)         |
-| 14 | `14 - dashboard.yaml`        | Dashboard (stateless, all config in ConfigMap)                                 |
+| #   | File                         | Purpose                                                                        |
+|-----|------------------------------|--------------------------------------------------------------------------------|
+| 01  | `01 - install-k3s.sh`        | Install K3s control plane or join as worker node                               |
+| 02  | `02 - k3s-config.yaml`       | K3s server config: eviction thresholds, reserved resources, max-pods           |
+| 03  | `03 - longhorn-install.sh`   | Install Longhorn via `kubectl apply`                                           |
+| 04  | `04 - longhorn-pi4-settings.yaml` | Longhorn Setting CRs optimized for Pi4                                    |
+| 05  | `05 - longhorn-ingress.yaml` | Traefik ingress for Longhorn UI at `longhorn.local`                            |
+| 06  | `06 - grafana-prometheus.yaml` | Prometheus + Grafana + Node Exporter, Longhorn PVCs (5Gi + 1Gi)              |
+| 07  | `07 - install-vnc-desktop.sh`| Install XFCE4 + TigerVNC + Firefox (required for Guacamole)                    |
+| 08  | `08 - cloudflare.yaml`       | Cloudflared tunnel deployment (2 replicas with anti-affinity)                  |
+| 09  | `09 - guacamole.yaml`        | Guacamole all-in-one , Longhorn PVC (`guacamole-pvc`, 1Gi)                     |
+| 10  | `10 - openwebui.yaml`        | Open WebUI AI chat (v0.7.2 with onnxruntime fix for ARM64)                     |
+| 11  | `11 - openclaw.yaml`         | OpenClaw AI assistant gateway, Longhorn PVC (`openclaw-pvc`, 2Gi)              |
+| 12  | `12 - aiostreams.yaml`       | AIOStreams (stateless)                                                         |
+| 13  | `13 - adguard.yaml`          | AdGuard Home DNS, Longhorn PVCs (`adguard-work-pvc` 1Gi, `conf` 256Mi)         |
+| 14  | `14 - dashboard.yaml`        | Homepage dashboard (`gethomepage/homepage`, stateless, config in ConfigMap)    |
+| XX  | `flannel-fix-install.sh`     | *(If needed)* Install systemd fix for flannel subnet.env issue                 |
 
 > **Note:** Secrets (`guacamole-config`, `cloudflared-config`, `aiostreams-config`, `openclaw-env-secret`) are created manually on the cluster and not stored in these files.
 
@@ -600,35 +638,3 @@ sudo bash "flannel-fix-install.sh" 10.42.1.1/24  # pi-node-02
 sudo bash "flannel-fix-install.sh" 10.42.2.1/24  # pi-node-03
 sudo bash "flannel-fix-install.sh" 10.42.3.1/24  # pi-node-04
 ```
-
----
-
-## Pi4 Optimizations Applied
-
-### K3s (`k3s-config.yaml`)
-- Hard eviction at 200Mi free memory / 10% disk
-- Soft eviction at 500Mi / 15% with 90s grace
-- Reserved: 150m CPU + 256Mi RAM for kube + system each
-- Max 40 pods per node
-- Node status updates every 30s (reduced from default 10s to save CPU)
-- Node monitor period 10s / grace 60s (relaxed - Pi4 doesn't need aggressive detection)
-
-### Longhorn (`longhorn-pi4-settings.yaml`)
-- 2 replicas per volume (not 3 - saves 33% storage IO)
-- 5% guaranteed instance manager CPU (down from 12%)
-- 1 concurrent rebuild/backup per node (prevents IO storms)
-- Fast replica rebuild enabled
-- Soft anti-affinity (allows scheduling when nodes are limited)
-
-### Monitoring (`grafana-prometheus.yaml`)
-- 60s scrape interval (plenty for cluster dashboards, saves CPU)
-- 15-day retention / 4GB size cap (fits a 5Gi Longhorn volume)
-- Node Exporter: 25m CPU / 64Mi limit per node
-- Grafana: 50m CPU / 256Mi limit
-- Prometheus: 50m CPU / 384Mi limit
-
-### Workloads
-All deployments include:
-- Resource requests and limits sized for Pi4
-- Readiness and liveness probes
-- Pod anti-affinity where applicable (cloudflared)

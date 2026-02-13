@@ -29,12 +29,24 @@ kubectl -n longhorn-system wait --for=condition=ready pod -l app=longhorn-manage
 # Step 3: Apply Pi4-optimized settings
 echo ""
 echo "[3/4] Applying Pi4-optimized settings..."
-kubectl apply -f "${SCRIPT_DIR}/longhorn-pi4-settings.yaml"
+if [ -f "${SCRIPT_DIR}/04 - longhorn-pi4-settings.yaml" ]; then
+  kubectl apply -f "${SCRIPT_DIR}/04 - longhorn-pi4-settings.yaml"
+elif [ -f "${SCRIPT_DIR}/longhorn-pi4-settings.yaml" ]; then
+  kubectl apply -f "${SCRIPT_DIR}/longhorn-pi4-settings.yaml"
+else
+  echo "  WARNING: longhorn-pi4-settings.yaml not found, skipping"
+fi
 
 # Step 4: Apply ingress for dashboard access
 echo ""
 echo "[4/4] Applying Longhorn dashboard ingress..."
-kubectl apply -f "${SCRIPT_DIR}/longhorn-ingress.yaml"
+if [ -f "${SCRIPT_DIR}/05 - longhorn-ingress.yaml" ]; then
+  kubectl apply -f "${SCRIPT_DIR}/05 - longhorn-ingress.yaml"
+elif [ -f "${SCRIPT_DIR}/longhorn-ingress.yaml" ]; then
+  kubectl apply -f "${SCRIPT_DIR}/longhorn-ingress.yaml"
+else
+  echo "  WARNING: longhorn-ingress.yaml not found, skipping"
+fi
 
 # Wait for UI
 echo ""

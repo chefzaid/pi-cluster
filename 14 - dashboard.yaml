@@ -29,6 +29,9 @@ rules:
   - apiGroups: ["extensions", "networking.k8s.io"]
     resources: [ingresses]
     verbs: [get, list]
+  - apiGroups: ["metrics.k8s.io"]
+    resources: [pods, nodes]
+    verbs: [get, list]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
@@ -87,8 +90,6 @@ data:
             icon: longhorn
             href: http://longhorn.local
             description: Distributed storage
-            server: main
-            container: longhorn
             namespace: longhorn-system
             app: longhorn-ui
         - AdGuard Home:
@@ -112,7 +113,7 @@ data:
         - Open WebUI:
             icon: open-webui
             href: https://ai.swirlit.dev
-            description: AI chat (Gemini)
+            description: AI chat (v0.7.2)
             namespace: ai
             app: open-webui
         - AIOStreams:
@@ -123,23 +124,23 @@ data:
             app: aiostreams
         - OpenClaw:
             icon: mdi-robot
-            href: http://openclaw.local
+            href: https://assistant.swirlit.dev
             description: AI assistant gateway
             namespace: openclaw
             app: openclaw
     - Monitoring:
         - Grafana:
             icon: grafana
-            href: http://grafana.local
+            href: https://grafana.swirlit.dev
             description: Cluster dashboards
             namespace: monitoring
             app: grafana
-        - Prometheus:
-            icon: prometheus
-            href: http://grafana.local
-            description: Metrics collection
-            namespace: monitoring
-            app: prometheus
+        - Dashboard:
+            icon: homepage
+            href: https://dashboard.swirlit.dev
+            description: This dashboard
+            namespace: dashboard
+            app: dashboard
 
   bookmarks.yaml: |
     - Management:
@@ -173,39 +174,47 @@ spec:
         app: dashboard
     spec:
       serviceAccountName: dashboard
+      initContainers:
+        - name: init-config
+          image: busybox:latest
+          command: ["sh", "-c", "cp /configmap/* /app-config/ && mkdir -p /app-config/logs"]
+          volumeMounts:
+            - name: configmap
+              mountPath: /configmap
+            - name: config
+              mountPath: /app-config
       containers:
         - name: dashboard
-          image: ghcr.io/getdashboard/dashboard:v1.2.0
+          image: ghcr.io/gethomepage/homepage:latest
           ports:
             - containerPort: 3000
+          env:
+            - name: HOMEPAGE_ALLOWED_HOSTS
+              value: "*"    # Allow all hosts (internal service behind ingress)
           volumeMounts:
             - name: config
               mountPath: /app/config
           resources:
             requests:
-              memory: "48Mi"
+              memory: "96Mi"
               cpu: "15m"
-              ephemeral-storage: "64Mi"
             limits:
-              memory: "128Mi"
+              memory: "256Mi"
               cpu: "150m"
-              ephemeral-storage: "256Mi"
           readinessProbe:
             httpGet:
-              path: /
+              path: /api/healthcheck
               port: 3000
-            initialDelaySeconds: 5
-            periodSeconds: 10
-          livenessProbe:
-            httpGet:
-              path: /
-              port: 3000
-            initialDelaySeconds: 10
-            periodSeconds: 30
+            initialDelaySeconds: 30
+            periodSeconds: 20
+            timeoutSeconds: 10
+            failureThreshold: 5
       volumes:
-        - name: config
+        - name: configmap
           configMap:
             name: dashboard-config
+        - name: config
+          emptyDir: {}
 ---
 apiVersion: v1
 kind: Service

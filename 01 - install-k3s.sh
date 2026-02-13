@@ -46,11 +46,16 @@ echo "Node: $(hostname)"
 echo ""
 
 # Step 1: Copy K3s config if available
-if [ -f "${SCRIPT_DIR}/k3s-config.yaml" ]; then
+CONFIG_FILE="${SCRIPT_DIR}/02 - k3s-config.yaml"
+if [ ! -f "$CONFIG_FILE" ]; then
+  CONFIG_FILE="${SCRIPT_DIR}/k3s-config.yaml"
+fi
+
+if [ -f "$CONFIG_FILE" ]; then
   echo "[1/4] Applying K3s config (Pi4 optimized)..."
   mkdir -p /etc/rancher/k3s
-  cp "${SCRIPT_DIR}/k3s-config.yaml" /etc/rancher/k3s/config.yaml
-  echo "  Copied k3s-config.yaml -> /etc/rancher/k3s/config.yaml"
+  cp "$CONFIG_FILE" /etc/rancher/k3s/config.yaml
+  echo "  Copied $(basename "$CONFIG_FILE") -> /etc/rancher/k3s/config.yaml"
 else
   echo "[1/4] No k3s-config.yaml found, using defaults..."
   mkdir -p /etc/rancher/k3s

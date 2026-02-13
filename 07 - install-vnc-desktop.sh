@@ -70,9 +70,10 @@ echo "  TigerVNC installed"
 # ──────────────────────────────────────────────
 echo ""
 echo "[3/6] Installing Firefox..."
-# Prefer the deb version over snap (more stable in VNC)
+# IMPORTANT: Use native deb Firefox, NOT snap!
+# Snap apps have issues with VNC/remote X sessions due to confinement
 apt-get install -y -qq firefox 2>/dev/null || apt-get install -y -qq firefox-esr 2>/dev/null
-echo "  Firefox installed"
+echo "  Firefox installed (native deb, not snap)"
 
 # ──────────────────────────────────────────────
 # Step 4: Configure VNC for the user
@@ -106,6 +107,10 @@ cat > "${SUDO_USER_HOME}/.vnc/xstartup" << 'XSTARTUP'
 # Clean up lock files from previous sessions
 unset SESSION_MANAGER
 unset DBUS_SESSION_BUS_ADDRESS
+
+# CRITICAL: Set XAUTHORITY for snap applications to work in VNC
+export XAUTHORITY=$HOME/.Xauthority
+export DISPLAY=:1
 
 # Fix color scheme / GTK warnings
 export XDG_SESSION_TYPE=x11

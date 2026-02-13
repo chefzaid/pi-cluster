@@ -16,57 +16,11 @@ spec:
     requests:
       storage: 1Gi
 ---
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: guacd
-  namespace: guacamole
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: guacd
-  template:
-    metadata:
-      labels:
-        app: guacd
-    spec:
-      containers:
-      - name: guacd
-        image: guacamole/guacd:latest
-        ports:
-        - containerPort: 4822
-        resources:
-          requests:
-            memory: "128Mi"
-            cpu: "50m"
-          limits:
-            memory: "256Mi"
-            cpu: "250m"
-        readinessProbe:
-          tcpSocket:
-            port: 4822
-          initialDelaySeconds: 5
-          periodSeconds: 10
-        livenessProbe:
-          tcpSocket:
-            port: 4822
-          initialDelaySeconds: 15
-          periodSeconds: 30
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: guacd-service
-  namespace: guacamole
-spec:
-  selector:
-    app: guacd
-  ports:
-  - protocol: TCP
-    port: 4822
-    targetPort: 4822
----
+# ============================================================
+#  Guacamole - All-in-one (jwetzell/guacamole for ARM64)
+#  Bundles guacd + guacamole client + built-in DB
+#  Official Apache images do NOT support ARM64/aarch64
+# ============================================================
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -74,6 +28,8 @@ metadata:
   namespace: guacamole
 spec:
   replicas: 1
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app: guacamole
@@ -84,39 +40,35 @@ spec:
     spec:
       containers:
       - name: guacamole
-        image: guacamole/guacamole:latest
+        image: jwetzell/guacamole:latest
         ports:
         - containerPort: 8080
-        env:
-        - name: GUACD_HOSTNAME
-          value: guacd-service
-        - name: GUACD_PORT
-          value: "4822"
-        envFrom:
-        - secretRef:
-            name: guacamole-config
         volumeMounts:
         - name: guac-data
           mountPath: /config
         resources:
           requests:
-            memory: "192Mi"
-            cpu: "75m"
+            memory: "256Mi"
+            cpu: "100m"
           limits:
-            memory: "384Mi"
-            cpu: "400m"
+            memory: "512Mi"
+            cpu: "500m"
         readinessProbe:
           httpGet:
-            path: /guacamole/
-            port: 8080
-          initialDelaySeconds: 30
-          periodSeconds: 10
-        livenessProbe:
-          httpGet:
-            path: /guacamole/
+            path: /
             port: 8080
           initialDelaySeconds: 60
-          periodSeconds: 30
+          periodSeconds: 15
+          timeoutSeconds: 10
+          failureThreshold: 10
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 8080
+          initialDelaySeconds: 120
+          periodSeconds: 60
+          timeoutSeconds: 15
+          failureThreshold: 5
       volumes:
       - name: guac-data
         persistentVolumeClaim:
@@ -134,3 +86,23 @@ spec:
   - protocol: TCP
     port: 80
     targetPort: 8080
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: guacamole-ingress
+  namespace: guacamole
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: web
+spec:
+  rules:
+  - host: guacamole.local
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: guacamole-service
+            port:
+              number: 80
