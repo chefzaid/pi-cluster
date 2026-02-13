@@ -8,7 +8,7 @@ metadata:
   name: monitoring
 ---
 # ============================================================
-#  Prometheus – cluster-wide metrics collection
+#  Prometheus - cluster-wide metrics collection
 # ============================================================
 apiVersion: v1
 kind: ConfigMap
@@ -195,7 +195,7 @@ spec:
       targetPort: 9090
 ---
 # ============================================================
-#  Node Exporter – DaemonSet on every node
+#  Node Exporter - DaemonSet on every node
 #  Exposes CPU, RAM, disk, network, filesystem, temperature
 # ============================================================
 apiVersion: apps/v1
@@ -256,7 +256,7 @@ metadata:
   name: node-exporter-service
   namespace: monitoring
 spec:
-  clusterIP: None    # headless – Prometheus discovers endpoints via SD
+  clusterIP: None    # headless - Prometheus discovers endpoints via SD
   selector:
     app: node-exporter
   ports:
@@ -265,7 +265,7 @@ spec:
       targetPort: 9100
 ---
 # ============================================================
-#  Grafana – dashboards & visualization
+#  Grafana - dashboards & visualization
 # ============================================================
 apiVersion: v1
 kind: PersistentVolumeClaim
@@ -280,7 +280,7 @@ spec:
     requests:
       storage: 1Gi
 ---
-# Datasource provisioning – auto-connect Prometheus
+# Datasource provisioning - auto-connect Prometheus
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -489,7 +489,7 @@ spec:
             - name: GF_SECURITY_ADMIN_USER
               value: admin
             - name: GF_SECURITY_ADMIN_PASSWORD
-              value: admin
+              value: admin                  # CHANGE ON FIRST LOGIN — or replace with a K8s Secret
             - name: GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH
               value: /var/lib/grafana/dashboards/pi-cluster-overview.json
             - name: GF_INSTALL_PLUGINS
@@ -550,8 +550,8 @@ spec:
       targetPort: 3000
 ---
 # ============================================================
-#  Traefik Ingress – access Grafana at grafana.local
-#  (same pattern as longhorn.local – resolved by Traefik/K3s)
+#  Traefik Ingress - access Grafana at grafana.local
+#  (same pattern as longhorn.local - resolved by Traefik/K3s)
 # ============================================================
 apiVersion: networking.k8s.io/v1
 kind: Ingress

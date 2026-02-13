@@ -8,7 +8,8 @@
 # Solution: A systemd service that creates the file before K3s starts.
 #
 # Usage: Run this script on each node that experiences the issue.
-#   sudo bash install-flannel-fix.sh
+#   sudo bash "$0"              # default: 10.42.0.1/24
+#   sudo bash "$0" 10.42.1.1/24 # example
 
 set -e
 
@@ -61,4 +62,4 @@ echo "  pi-node-03:                 10.42.2.1/24"
 echo "  pi-node-04:                 10.42.3.1/24"
 echo ""
 echo "To install on another node with a different subnet:"
-echo "  sudo bash install-flannel-fix.sh 10.42.X.1/24"
+echo "  sudo bash \"$0\" 10.42.X.1/24"

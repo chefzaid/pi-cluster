@@ -97,7 +97,7 @@ The built-in dashboard shows per-node panels for:
 Guacamole connects to the Pi desktops over VNC. Install a desktop environment on each node you want to access remotely:
 
 ```bash
-sudo bash install-vnc-desktop.sh          # default password: raspberry
+sudo bash install-vnc-desktop.sh           # default password: raspberry
 sudo bash install-vnc-desktop.sh mypass123 # or set your own
 ```
 
@@ -148,27 +148,31 @@ kubectl -n cloudflared get pods
 
 In the Cloudflare dashboard, go to your tunnel → **Public Hostname** tab → **Add a public hostname** for each app:
 
-| Subdomain      | Domain           | Service | URL                                                     |
-|----------------|------------------|---------|---------------------------------------------------------|
-| `remote`       | `yourdomain.com` | HTTP    | `guacamole-service.guacamole.svc.cluster.local:80`      |
-| `ai`           | `yourdomain.com` | HTTP    | `open-webui-service.ai.svc.cluster.local:80`            |
-| `aiostreams`   | `yourdomain.com` | HTTP    | `aiostreams-service.aiostreams.svc.cluster.local:80`    |
+| Subdomain      | Domain        | Service | URL                                                     |
+|----------------|---------------|---------|---------------------------------------------------------|
+| `remote`       | `swirlit.dev` | HTTP    | `guacamole-service.guacamole.svc.cluster.local:80`      |
+| `ai`           | `swirlit.dev` | HTTP    | `open-webui-service.ai.svc.cluster.local:80`            |
+| `aiostreams`   | `swirlit.dev` | HTTP    | `aiostreams-service.aiostreams.svc.cluster.local:80`    |
+| `dashboard`    | `swirlit.dev` | HTTP    | `dashboard-service.dashboard.svc.cluster.local:80`        |
 
 This makes your apps accessible at:
-- `https://remote.yourdomain.com`
-- `https://ai.yourdomain.com`
-- `https://aiostreams.yourdomain.com`
+- `https://remote.swirlit.dev`
+- `https://ai.swirlit.dev`
+- `https://aiostreams.swirlit.dev`
+- `https://dashboard.swirlit.dev`
 
-#### e) Protect Guacamole with Cloudflare Access (email OTP)
+#### e) Protect internet-exposed apps with Cloudflare Access (email OTP)
 
-Add a one-time-password gate so only authorized users can reach Guacamole:
+Add a one-time-password gate so only authorized users can reach your services. **Do this for every internet-facing app** - without it, anyone who guesses the subdomain has direct access.
+
+##### Guacamole (critical - remote desktop access)
 
 1. Go to [Cloudflare Zero Trust Dashboard](https://one.dash.cloudflare.com/) → **Access** → **Applications**
 2. Click **Add an application** → **Self-hosted**
 3. Configure the application:
    - **Application name:** `Guacamole`
    - **Session duration:** `24 hours` (or your preference)
-   - **Subdomain:** `remote` | **Domain:** `yourdomain.com`
+   - **Subdomain:** `remote` | **Domain:** `swirlit.dev`
 4. Click **Next** to configure the access policy:
    - **Policy name:** `Email OTP`
    - **Action:** `Allow`
@@ -176,19 +180,43 @@ Add a one-time-password gate so only authorized users can reach Guacamole:
    - **Authentication method:** Leave as default (Cloudflare will offer **One-time PIN** automatically)
 5. Click **Next** → **Add application**
 
+##### Open WebUI (important - AI chat with API keys stored inside)
+
+Repeat the same steps:
+- **Application name:** `Open WebUI`
+- **Subdomain:** `ai` | **Domain:** `swirlit.dev`
+- Use the same policy (Email OTP with your email)
+
+> **Why this matters:** The first person to sign up on Open WebUI becomes admin. Without Cloudflare Access, a stranger could create the admin account before you do. Even after you set up your account, the login page is still exposed.
+
+##### Dashboard dashboard (recommended - shows internal service topology)
+
+Repeat the same steps:
+- **Application name:** `Dashboard`
+- **Subdomain:** `dashboard` | **Domain:** `swirlit.dev`
+- Use the same policy (Email OTP with your email)
+
+> **Why this matters:** Dashboard shows pod names, namespaces, health status, and internal URLs. While read-only, this gives an attacker a detailed map of your cluster. Protect it.
+
+##### AIOStreams (optional - low risk)
+
+AIOStreams is stateless and contains no credentials beyond what's in its addon configuration. You can still add Cloudflare Access if you want, using the same steps with subdomain `aiostreams`.
+
 How it works:
-- When someone visits `https://remote.yourdomain.com`, Cloudflare shows a login page
+- When someone visits any protected URL, Cloudflare shows a login page
 - The user enters their email address
 - If the email matches your allow list, Cloudflare sends a **6-digit OTP** to that email
-- After entering the code, the user gets a session cookie and can access Guacamole
+- After entering the code, the user gets a session cookie and can access the app
 - No passwords to manage - Cloudflare handles authentication before traffic ever reaches your cluster
 
-### 7. Deploy workloads
+### 8. Deploy workloads
 
 ```bash
 kubectl apply -f guacamole.yaml
 kubectl apply -f openwebui.yaml
 kubectl apply -f aiostreams.yaml
+kubectl apply -f adguard.yaml
+kubectl apply -f dashboard.yaml
 ```
 
 > **Note on LLMs:** Ollama has been intentionally removed from this cluster. A Raspberry Pi 4 with 4GB RAM cannot run any local LLM in a usable way - even the tiniest models (qwen2.5:0.5b at ~1GB) would get < 1 token/second on the Cortex-A72 with no GPU/NPU, and that's before K3s, Longhorn, and other workloads claim their share of RAM. Open WebUI is still useful as a frontend for cloud LLM APIs (OpenAI, Anthropic, Google, etc.) - configure API keys in its settings after deployment.
@@ -197,7 +225,7 @@ kubectl apply -f aiostreams.yaml
 
 #### 8a) Guacamole - remote desktop gateway
 
-Apache Guacamole provides browser-based access to your machines via RDP, VNC, and SSH. Access it at `https://remote.yourdomain.com/guacamole/`.
+Apache Guacamole provides browser-based access to your machines via RDP, VNC, and SSH. Access it at `https://remote.swirlit.dev`.
 
 ##### First login & replacing the default admin
 
@@ -306,7 +334,7 @@ For **RDP** connections, the keyboard layout must match the Windows input langua
 
 #### 8b) Open WebUI - AI chat frontend
 
-Open WebUI is a ChatGPT-like interface that connects to cloud LLM APIs. Access it at `https://ai.yourdomain.com`.
+Open WebUI is a ChatGPT-like interface that connects to cloud LLM APIs. Access it at `https://ai.swirlit.dev`.
 
 ##### First login
 
@@ -343,19 +371,105 @@ Available models (Gemini 2.0 Flash, Gemini 2.5 Pro, etc.) will now appear in the
 
 AIOStreams is a lightweight addon server for [Stremio](https://www.stremio.com/) that aggregates multiple streaming addons into a single endpoint. Instead of installing dozens of Stremio addons individually, you configure them all in AIOStreams and add just one addon URL to Stremio. It is completely stateless (no PVC needed).
 
-### 9. (If needed) Flannel fix
+---
 
-If pods get stuck in `ContainerCreating` after a reboot due to missing `/run/flannel/subnet.env`:
+#### 8d) AdGuard Home - network-wide DNS ad blocker
 
-```bash
-# On the affected node (adjust subnet per node)
-sudo bash flannel-fix-install.sh              # pi-node-01: 10.42.0.1/24
-sudo bash flannel-fix-install.sh 10.42.1.1/24 # pi-node-02
-sudo bash flannel-fix-install.sh 10.42.2.1/24 # pi-node-03
-sudo bash flannel-fix-install.sh 10.42.3.1/24 # pi-node-04
+AdGuard Home blocks ads, trackers, and malware domains at the DNS level for every device on your network - phones, TVs, laptops - without installing anything on each device. It runs entirely in-memory (DNS lookups are hash table lookups) so it's extremely fast on a Pi4.
+
+Admin UI: `http://adguard.local`
+
+##### First-time setup
+
+On first access, AdGuard Home shows a setup wizard:
+
+1. Open `http://adguard.local`
+2. Click **Get started**
+3. **Admin web interface** - leave listen on port `3000` (already configured in the YAML)
+4. **DNS server** - leave listen on port `53`
+5. **Create admin credentials** - pick a username and password
+6. Click **Next** → **Open Dashboard**
+
+##### Configure your router to use AdGuard as DNS
+
+For whole-network ad blocking, point your router's DNS at any node IP on port `30053`:
+
+1. Log into your router's admin panel
+2. Find **DNS settings** (usually under DHCP or WAN settings)
+3. Set **Primary DNS** to `192.168.1.191` (pi-node-01)
+4. Set **Secondary DNS** to `192.168.1.192` (pi-node-02 - fallback if the pod moves)
+5. Save and reboot the router
+
+> **Important:** AdGuard listens on NodePort `30053`, not standard port `53`. Most consumer routers allow setting a custom DNS port. If yours doesn't, you have two options:
+> - Set DNS directly on each device (phone, laptop) to `192.168.1.191:30053`
+> - Or use a Pi-hole-style approach: run AdGuard with `hostNetwork: true` and port 53 directly (requires stopping `systemd-resolved` on the host node)
+
+##### Recommended filter lists
+
+Go to **Filters** → **DNS blocklists** → **Add blocklist** → **Choose from list**:
+
+| List                            | Purpose                                  |
+|---------------------------------|------------------------------------------|
+| **AdGuard DNS filter**          | Default, catches most ads and trackers   |
+| **AdAway Default Blocklist**    | Mobile-focused ads                       |
+| **OISD (small)**                | Well-maintained, low false-positive list |
+| **Steven Black's Unified**      | Ads, malware, fakenews                   |
+
+> **Tip:** Start with just the default **AdGuard DNS filter** and **OISD (small)**. Adding too many lists wastes memory with overlapping entries and increases false positives. You can always add more later.
+
+##### Upstream DNS servers
+
+Go to **Settings** → **DNS settings** → **Upstream DNS servers**. Recommended:
+
+```
+https://dns.cloudflare.com/dns-query
+https://dns.google/dns-query
 ```
 
+This uses DNS-over-HTTPS (encrypted) to Cloudflare and Google as fallback. Queries are fast and your ISP can't see your DNS lookups.
+
+Enable **Parallel requests** - AdGuard queries all upstream servers simultaneously and uses the fastest response.
+
+##### Performance tuning for Pi4
+
+- Under **Settings** → **DNS settings** → **DNS cache configuration**:
+  - Set **Cache size** to `10000` (default 4096 - more cache = fewer upstream queries)
+  - Set **Minimum TTL** to `300` seconds - overrides short TTLs, keeps popular domains cached longer
+- Under **Settings** → **General settings**:
+  - Disable **Query log** → **Enable log** if you don't need to review queries (saves disk I/O on the Longhorn PVC)
+  - Or set **Log retention** to `24 hours` instead of 90 days
+  - Disable **Statistics** or set retention to `24 hours` for the same reason
+
+##### Common issues
+
+- **Some websites broken after enabling AdGuard:** Go to **Query Log**, find the blocked domain, and click **Unblock**. Common false positives: `s.youtube.com` (YouTube history), `graph.facebook.com`, CDN domains for banking apps.
+- **DNS not resolving at all:** Check if the AdGuard pod is running: `kubectl -n adguard get pods`. If the pod moved to another node, your router's primary DNS IP is stale - this is why you set a secondary DNS.
+
 ---
+
+#### 8e) Dashboard - cluster dashboard
+
+Dashboard is a unified dashboard showing all your services with live health status. It auto-discovers pods via the Kubernetes API and shows green/red indicators.
+
+Dashboard: `http://dashboard.local` (LAN) or `https://dashboard.swirlit.dev` (internet, protected by Cloudflare Access)
+
+No setup needed - it comes pre-configured with all your services.
+
+**Top widgets:** Live cluster CPU and RAM usage per node (pulled from the Kubernetes API, no extra config).
+
+**Bookmarks:** Quick links to Cloudflare Dashboard, GitHub repo, Google AI Studio.
+
+##### Customizing
+
+All configuration lives in the `dashboard-config` ConfigMap in [14 - dashboard.yaml](14%20-%20dashboard.yaml). To customize:
+
+1. Edit the YAML file (services, bookmarks, widgets sections)
+2. Re-apply: `kubectl apply -f dashboard.yaml`
+3. The pod auto-reloads config within a few seconds
+
+To add a new service, add an entry under the appropriate group in `services.yaml`. See the [Dashboard docs](https://getdashboard.dev/configs/services/) for all options.
+
+> **Tip:** Replace `swirlit.dev` in the `services.yaml` section with your actual domain so the links work.
 
 ## File Reference
 
@@ -363,6 +477,7 @@ sudo bash flannel-fix-install.sh 10.42.3.1/24 # pi-node-04
 |----|------------------------------|--------------------------------------------------------------------------------|
 | 01 | `install-k3s.sh`             | Install K3s control plane or join as worker node                               |
 | 02 | `k3s-config.yaml`            | K3s server config: eviction thresholds, reserved resources, max-pods           |
+| 02b | `flannel-fix-install.sh` | *(If needed)* Install systemd fix for flannel subnet.env issue               |
 | 03 | `longhorn-install.sh`        | Install Longhorn via `kubectl apply` (no Helm)                                 |
 | 04 | `longhorn-pi4-settings.yaml` | Longhorn Setting CRs optimized for Pi4 (2 replicas, low CPU, fast rebuild)     |
 | 05 | `longhorn-ingress.yaml`      | Traefik ingress for Longhorn UI at `longhorn.local`                            |
@@ -372,9 +487,31 @@ sudo bash flannel-fix-install.sh 10.42.3.1/24 # pi-node-04
 | 09 | `guacamole.yaml`             | Guacamole + guacd, Longhorn PVC (`guacamole-pvc`, 1Gi)                         |
 | 10 | `openwebui.yaml`             | Open WebUI for cloud LLM APIs, Longhorn PVC (`open-webui-pvc`, 2Gi)            |
 | 11 | `aiostreams.yaml`            | AIOStreams (stateless)                                                         |
-| 12 | `flannel-fix-install.sh`     | *(If needed)* Install systemd fix for flannel subnet.env issue                 |
+| 13 | `adguard.yaml`               | AdGuard Home DNS, Longhorn PVCs (`adguard-work-pvc` 1Gi, `conf` 256Mi)         |
+| 14 | `dashboard.yaml`              | Dashboard dashboard (stateless, all config in ConfigMap)                        |
 
 > **Note:** Secrets (`guacamole-config`, `cloudflared-config`, `aiostreams-config`) are created manually on the cluster and not stored in these files.
+
+---
+
+## Mandatory post-deployment checklist
+
+1. **Guacamole:** Delete the default `guacadmin` account immediately (see section 8a)
+2. **Grafana:** Change the default `admin`/`admin` password on first login
+3. **Open WebUI:** Create your admin account before anyone else can
+4. **Cloudflare Access:** Set up email OTP for `remote`, `ai`, and `dashboard` subdomains (see section 7e)
+5. **VNC password:** Change from default `raspberry` - run `vncpasswd` on the Pi
+
+> **Tip:**
+If after installing everything, some pods get stuck in `ContainerCreating` after a reboot due to missing `/run/flannel/subnet.env`:
+
+```bash
+# On the affected node (adjust subnet per node)
+sudo bash "flannel-fix-install.sh"               # pi-node-01: 10.42.0.1/24
+sudo bash "flannel-fix-install.sh" 10.42.1.1/24  # pi-node-02
+sudo bash "flannel-fix-install.sh" 10.42.2.1/24  # pi-node-03
+sudo bash "flannel-fix-install.sh" 10.42.3.1/24  # pi-node-04
+```
 
 ---
 

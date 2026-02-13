@@ -39,7 +39,7 @@ spec:
         - containerPort: 8080
         env:
         - name: OLLAMA_BASE_URL
-          value: ""            # no local LLM – Pi4 4GB is too slow; use OpenAI/Anthropic API instead
+          value: ""            # no local LLM - Pi4 4GB is too slow; use OpenAI/Anthropic API instead
         volumeMounts:
         - name: webui-data
           mountPath: /app/backend/data

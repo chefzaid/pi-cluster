@@ -1,0 +1,233 @@
+# Dashboard - unified dashboard for all cluster services
+# Shows live health status, Prometheus widgets, and quick links
+# Stateless config via ConfigMaps - no PVC needed
+# Web UI available at http://dashboard.local
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: dashboard
+---
+# ============================================================
+#  Service Account - Dashboard needs read access to discover
+#  services and ingresses across namespaces
+# ============================================================
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: dashboard
+  namespace: dashboard
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: dashboard
+rules:
+  - apiGroups: [""]
+    resources: [namespaces, pods, nodes]
+    verbs: [get, list]
+  - apiGroups: ["extensions", "networking.k8s.io"]
+    resources: [ingresses]
+    verbs: [get, list]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: dashboard
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: dashboard
+subjects:
+  - kind: ServiceAccount
+    name: dashboard
+    namespace: dashboard
+---
+# ============================================================
+#  Configuration - services, widgets, bookmarks, settings
+# ============================================================
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: dashboard-config
+  namespace: dashboard
+data:
+  settings.yaml: |
+    title: Pi Cluster
+    favicon: https://raw.githubusercontent.com/walkxcode/dashboard-icons/main/svg/raspberry-pi.svg
+    headerStyle: clean
+    layout:
+      Infrastructure:
+        style: row
+        columns: 3
+      Applications:
+        style: row
+        columns: 3
+      Monitoring:
+        style: row
+        columns: 2
+
+  widgets.yaml: |
+    - kubernetes:
+        cluster:
+          show: true
+          cpu: true
+          memory: true
+          showLabel: true
+          label: "Pi Cluster"
+        nodes:
+          show: true
+          cpu: true
+          memory: true
+          showLabel: true
+
+  services.yaml: |
+    - Infrastructure:
+        - Longhorn:
+            icon: longhorn
+            href: http://longhorn.local
+            description: Distributed storage
+            server: main
+            container: longhorn
+            namespace: longhorn-system
+            app: longhorn-ui
+        - AdGuard Home:
+            icon: adguard-home
+            href: http://adguard.local
+            description: DNS ad blocker
+            namespace: adguard
+            app: adguard-home
+        - Cloudflare Tunnel:
+            icon: cloudflare
+            description: Internet exposure
+            namespace: cloudflared
+            app: cloudflared
+    - Applications:
+        - Guacamole:
+            icon: guacamole
+            href: https://remote.swirlit.dev
+            description: Remote desktop gateway
+            namespace: guacamole
+            app: guacamole
+        - Open WebUI:
+            icon: open-webui
+            href: https://ai.swirlit.dev
+            description: AI chat (Gemini)
+            namespace: ai
+            app: open-webui
+        - AIOStreams:
+            icon: stremio
+            href: https://aiostreams.swirlit.dev
+            description: Stremio addon aggregator
+            namespace: aiostreams
+            app: aiostreams
+    - Monitoring:
+        - Grafana:
+            icon: grafana
+            href: http://grafana.local
+            description: Cluster dashboards
+            namespace: monitoring
+            app: grafana
+        - Prometheus:
+            icon: prometheus
+            href: http://grafana.local
+            description: Metrics collection
+            namespace: monitoring
+            app: prometheus
+
+  bookmarks.yaml: |
+    - Management:
+        - Cloudflare Dashboard:
+            - icon: cloudflare
+              href: https://one.dash.cloudflare.com/
+        - GitHub Repo:
+            - icon: github
+              href: https://github.com/chefzaid/pi-cluster
+        - Google AI Studio:
+            - icon: google
+              href: https://aistudio.google.com/apikey
+
+  docker.yaml: ""
+  custom.css: ""
+  custom.js: ""
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dashboard
+  namespace: dashboard
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: dashboard
+  template:
+    metadata:
+      labels:
+        app: dashboard
+    spec:
+      serviceAccountName: dashboard
+      containers:
+        - name: dashboard
+          image: ghcr.io/getdashboard/dashboard:v1.2.0
+          ports:
+            - containerPort: 3000
+          volumeMounts:
+            - name: config
+              mountPath: /app/config
+          resources:
+            requests:
+              memory: "48Mi"
+              cpu: "15m"
+            limits:
+              memory: "128Mi"
+              cpu: "150m"
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 3000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 3000
+            initialDelaySeconds: 10
+            periodSeconds: 30
+      volumes:
+        - name: config
+          configMap:
+            name: dashboard-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: dashboard-service
+  namespace: dashboard
+spec:
+  selector:
+    app: dashboard
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 3000
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: dashboard-ingress
+  namespace: dashboard
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: web
+spec:
+  rules:
+    - host: dashboard.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: dashboard-service
+                port:
+                  number: 80
