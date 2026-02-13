@@ -71,7 +71,7 @@ Dashboard: `http://longhorn.local`
 ### 5. Install Prometheus + Grafana (cluster monitoring)
 
 ```bash
-kubectl apply -f grafana-prometheus.yaml
+kubectl apply -f "06 - grafana-prometheus.yaml"
 ```
 
 This deploys:
@@ -134,7 +134,7 @@ kubectl create secret generic cloudflared-config \
 #### c) Deploy cloudflared
 
 ```bash
-kubectl apply -f cloudflare.yaml
+kubectl apply -f "08 - cloudflare.yaml"
 ```
 
 Verify it connects:
@@ -152,12 +152,14 @@ In the Cloudflare dashboard, go to your tunnel → **Public Hostname** tab → *
 |----------------|---------------|---------|---------------------------------------------------------|
 | `remote`       | `swirlit.dev` | HTTP    | `guacamole-service.guacamole.svc.cluster.local:80`      |
 | `ai`           | `swirlit.dev` | HTTP    | `open-webui-service.ai.svc.cluster.local:80`            |
+| `assistant`    | `swirlit.dev` | HTTP    | `openclaw-service.openclaw.svc.cluster.local:80`        |
 | `aiostreams`   | `swirlit.dev` | HTTP    | `aiostreams-service.aiostreams.svc.cluster.local:80`    |
 | `dashboard`    | `swirlit.dev` | HTTP    | `dashboard-service.dashboard.svc.cluster.local:80`        |
 
 This makes your apps accessible at:
 - `https://remote.swirlit.dev`
 - `https://ai.swirlit.dev`
+- `https://assistant.swirlit.dev`
 - `https://aiostreams.swirlit.dev`
 - `https://dashboard.swirlit.dev`
 
@@ -189,7 +191,7 @@ Repeat the same steps:
 
 > **Why this matters:** The first person to sign up on Open WebUI becomes admin. Without Cloudflare Access, a stranger could create the admin account before you do. Even after you set up your account, the login page is still exposed.
 
-##### Dashboard dashboard (recommended - shows internal service topology)
+##### Dashboard (recommended - shows internal service topology)
 
 Repeat the same steps:
 - **Application name:** `Dashboard`
@@ -212,11 +214,12 @@ How it works:
 ### 8. Deploy workloads
 
 ```bash
-kubectl apply -f guacamole.yaml
-kubectl apply -f openwebui.yaml
-kubectl apply -f aiostreams.yaml
-kubectl apply -f adguard.yaml
-kubectl apply -f dashboard.yaml
+kubectl apply -f "09 - guacamole.yaml"
+kubectl apply -f "10 - openwebui.yaml"
+kubectl apply -f "11 - openclaw.yaml"
+kubectl apply -f "12 - aiostreams.yaml"
+kubectl apply -f "13 - adguard.yaml"
+kubectl apply -f "14 - dashboard.yaml"
 ```
 
 > **Note on LLMs:** Ollama has been intentionally removed from this cluster. A Raspberry Pi 4 with 4GB RAM cannot run any local LLM in a usable way - even the tiniest models (qwen2.5:0.5b at ~1GB) would get < 1 token/second on the Cortex-A72 with no GPU/NPU, and that's before K3s, Longhorn, and other workloads claim their share of RAM. Open WebUI is still useful as a frontend for cloud LLM APIs (OpenAI, Anthropic, Google, etc.) - configure API keys in its settings after deployment.
@@ -367,13 +370,97 @@ Available models (Gemini 2.0 Flash, Gemini 2.5 Pro, etc.) will now appear in the
 
 ---
 
-#### 8c) AIOStreams - Stremio addon aggregator
+#### 8c) OpenClaw - personal AI assistant gateway
+
+OpenClaw is a personal AI assistant that runs as a local gateway. It connects to the messaging platforms you already use (WhatsApp, Telegram, Slack, Discord, Signal, etc.) and routes conversations through cloud LLM APIs. It includes a WebChat UI, session management, and a skills/tools platform.
+
+Web UI: `http://openclaw.local`
+
+> **Note:** OpenClaw is single-instance by design (it holds WebSocket state and session data). It cannot scale horizontally - the pod runs on whichever node K3s schedules it, and Longhorn handles storage portability.
+
+##### Create the secret
+
+Before deploying, create the namespace and secret with your API keys:
+
+```bash
+kubectl create namespace openclaw
+kubectl create secret generic openclaw-env-secret -n openclaw \
+  --from-literal=OPENCLAW_GATEWAY_TOKEN=$(openssl rand -hex 32) \
+  --from-literal=ANTHROPIC_API_KEY=sk-ant-xxx
+```
+
+Add more keys as needed:
+- `OPENAI_API_KEY` - for OpenAI/GPT models
+- `GOOGLE_AI_API_KEY` - for Gemini models
+- `TELEGRAM_BOT_TOKEN` - to connect a Telegram bot
+- `DISCORD_BOT_TOKEN` - to connect a Discord bot
+
+##### Deploy
+
+```bash
+kubectl apply -f "11 - openclaw.yaml"
+```
+
+##### First-time setup
+
+1. Open `http://openclaw.local`
+2. Enter your **Gateway Token** (the `OPENCLAW_GATEWAY_TOKEN` from the secret) and click **Connect**
+3. Approve the browser device:
+
+```bash
+kubectl exec -n openclaw deployment/openclaw -- node dist/index.js devices list
+kubectl exec -n openclaw deployment/openclaw -- node dist/index.js devices approve <REQUEST_ID>
+```
+
+##### Connecting messaging channels
+
+Use `kubectl exec` to run OpenClaw CLI commands:
+
+```bash
+# WhatsApp (QR code pairing)
+kubectl exec -it -n openclaw deployment/openclaw -- node dist/index.js channels login
+
+# Telegram
+kubectl exec -n openclaw deployment/openclaw -- node dist/index.js channels add --channel telegram --token "<BOT_TOKEN>"
+
+# Discord
+kubectl exec -n openclaw deployment/openclaw -- node dist/index.js channels add --channel discord --token "<BOT_TOKEN>"
+```
+
+See the [OpenClaw channel docs](https://docs.openclaw.ai/channels) for all supported platforms.
+
+##### Changing the default model
+
+Edit the `openclaw-config` ConfigMap in `11 - openclaw.yaml` → `agents.defaults.model.primary`. Options:
+- `anthropic/claude-sonnet-4-20250514` (default)
+- `anthropic/claude-opus-4-6`
+- `openai/gpt-4o`
+- `google/gemini-2.5-pro`
+
+Then re-apply and restart:
+
+```bash
+kubectl apply -f "11 - openclaw.yaml"
+kubectl rollout restart deployment/openclaw -n openclaw
+```
+
+> **Tip:** Protect it with Cloudflare Access (email OTP) - OpenClaw has shell access and should **never** be exposed without authentication.
+
+##### Common issues
+
+- **"disconnected (1008): pairing required":** Run the `devices list` + `devices approve` commands above.
+- **Pod OOMKilled:** OpenClaw uses ~300-400Mi under load. If other workloads are competing, the 512Mi limit may need bumping - but check `kubectl top pods -n openclaw` first.
+- **Config changes not taking effect:** The init container only seeds config on first run. To force a config reset, delete the PVC and re-apply: `kubectl delete pvc openclaw-pvc -n openclaw && kubectl apply -f "11 - openclaw.yaml"`
+
+---
+
+#### 8d) AIOStreams - Stremio addon aggregator
 
 AIOStreams is a lightweight addon server for [Stremio](https://www.stremio.com/) that aggregates multiple streaming addons into a single endpoint. Instead of installing dozens of Stremio addons individually, you configure them all in AIOStreams and add just one addon URL to Stremio. It is completely stateless (no PVC needed).
 
 ---
 
-#### 8d) AdGuard Home - network-wide DNS ad blocker
+#### 8e) AdGuard Home - network-wide DNS ad blocker
 
 AdGuard Home blocks ads, trackers, and malware domains at the DNS level for every device on your network - phones, TVs, laptops - without installing anything on each device. It runs entirely in-memory (DNS lookups are hash table lookups) so it's extremely fast on a Pi4.
 
@@ -447,7 +534,7 @@ Enable **Parallel requests** - AdGuard queries all upstream servers simultaneous
 
 ---
 
-#### 8e) Dashboard - cluster dashboard
+#### 8f) Dashboard - cluster dashboard
 
 Dashboard is a unified dashboard showing all your services with live health status. It auto-discovers pods via the Kubernetes API and shows green/red indicators.
 
@@ -464,7 +551,7 @@ No setup needed - it comes pre-configured with all your services.
 All configuration lives in the `dashboard-config` ConfigMap in [14 - dashboard.yaml](14%20-%20dashboard.yaml). To customize:
 
 1. Edit the YAML file (services, bookmarks, widgets sections)
-2. Re-apply: `kubectl apply -f dashboard.yaml`
+2. Re-apply: `kubectl apply -f "14 - dashboard.yaml"`
 3. The pod auto-reloads config within a few seconds
 
 To add a new service, add an entry under the appropriate group in `services.yaml`. See the [Dashboard docs](https://getdashboard.dev/configs/services/) for all options.
@@ -475,22 +562,23 @@ To add a new service, add an entry under the appropriate group in `services.yaml
 
 | #  | File                         | Purpose                                                                        |
 |----|------------------------------|--------------------------------------------------------------------------------|
-| 01 | `install-k3s.sh`             | Install K3s control plane or join as worker node                               |
-| 02 | `k3s-config.yaml`            | K3s server config: eviction thresholds, reserved resources, max-pods           |
-| 02b | `flannel-fix-install.sh` | *(If needed)* Install systemd fix for flannel subnet.env issue               |
-| 03 | `longhorn-install.sh`        | Install Longhorn via `kubectl apply` (no Helm)                                 |
-| 04 | `longhorn-pi4-settings.yaml` | Longhorn Setting CRs optimized for Pi4 (2 replicas, low CPU, fast rebuild)     |
-| 05 | `longhorn-ingress.yaml`      | Traefik ingress for Longhorn UI at `longhorn.local`                            |
-| 06 | `grafana-prometheus.yaml`    | Prometheus + Grafana + Node Exporter, Longhorn PVCs (5Gi + 1Gi)                |
-| 07 | `install-vnc-desktop.sh`     | Install XFCE4 + TigerVNC + Firefox (required for Guacamole)                    |
-| 08 | `cloudflare.yaml`            | Cloudflared tunnel deployment (2 replicas with anti-affinity)                  |
-| 09 | `guacamole.yaml`             | Guacamole + guacd, Longhorn PVC (`guacamole-pvc`, 1Gi)                         |
-| 10 | `openwebui.yaml`             | Open WebUI for cloud LLM APIs, Longhorn PVC (`open-webui-pvc`, 2Gi)            |
-| 11 | `aiostreams.yaml`            | AIOStreams (stateless)                                                         |
-| 13 | `adguard.yaml`               | AdGuard Home DNS, Longhorn PVCs (`adguard-work-pvc` 1Gi, `conf` 256Mi)         |
-| 14 | `dashboard.yaml`              | Dashboard dashboard (stateless, all config in ConfigMap)                        |
+| 01 | `01 - install-k3s.sh`        | Install K3s control plane or join as worker node                               |
+| 02 | `02 - k3s-config.yaml`       | K3s server config: eviction thresholds, reserved resources, max-pods           |
+| 02b | `flannel-fix-install.sh`    | *(If needed)* Install systemd fix for flannel subnet.env issue                 |
+| 03 | `03 - longhorn-install.sh`   | Install Longhorn via `kubectl apply` (no Helm)                                 |
+| 04 | `04 - longhorn-pi4-settings.yaml` | Longhorn Setting CRs optimized for Pi4 (2 replicas, low CPU, fast rebuild) |
+| 05 | `05 - longhorn-ingress.yaml` | Traefik ingress for Longhorn UI at `longhorn.local`                            |
+| 06 | `06 - grafana-prometheus.yaml` | Prometheus + Grafana + Node Exporter, Longhorn PVCs (5Gi + 1Gi)              |
+| 07 | `07 - install-vnc-desktop.sh` | Install XFCE4 + TigerVNC + Firefox (required for Guacamole)                   |
+| 08 | `08 - cloudflare.yaml`       | Cloudflared tunnel deployment (2 replicas with anti-affinity)                  |
+| 09 | `09 - guacamole.yaml`        | Guacamole + guacd, Longhorn PVC (`guacamole-pvc`, 1Gi)                         |
+| 10 | `10 - openwebui.yaml`        | Open WebUI for cloud LLM APIs, Longhorn PVC (`open-webui-pvc`, 2Gi)            |
+| 11 | `11 - openclaw.yaml`         | OpenClaw AI assistant gateway, Longhorn PVC (`openclaw-pvc`, 2Gi)              |
+| 12 | `12 - aiostreams.yaml`       | AIOStreams (stateless)                                                         |
+| 13 | `13 - adguard.yaml`          | AdGuard Home DNS, Longhorn PVCs (`adguard-work-pvc` 1Gi, `conf` 256Mi)         |
+| 14 | `14 - dashboard.yaml`        | Dashboard (stateless, all config in ConfigMap)                                 |
 
-> **Note:** Secrets (`guacamole-config`, `cloudflared-config`, `aiostreams-config`) are created manually on the cluster and not stored in these files.
+> **Note:** Secrets (`guacamole-config`, `cloudflared-config`, `aiostreams-config`, `openclaw-env-secret`) are created manually on the cluster and not stored in these files.
 
 ---
 
@@ -499,7 +587,7 @@ To add a new service, add an entry under the appropriate group in `services.yaml
 1. **Guacamole:** Delete the default `guacadmin` account immediately (see section 8a)
 2. **Grafana:** Change the default `admin`/`admin` password on first login
 3. **Open WebUI:** Create your admin account before anyone else can
-4. **Cloudflare Access:** Set up email OTP for `remote`, `ai`, and `dashboard` subdomains (see section 7e)
+4. **Cloudflare Access:** Set up email OTP for `remote`, `ai`, `assistant`, and `dashboard` subdomains (see section 7e)
 5. **VNC password:** Change from default `raspberry` - run `vncpasswd` on the Pi
 
 > **Tip:**

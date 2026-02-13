@@ -1,0 +1,217 @@
+# OpenClaw - personal AI assistant gateway
+# Single-instance gateway that connects to messaging platforms
+# (WhatsApp, Telegram, Slack, Discord, etc.) and cloud LLM APIs
+# Web UI available at http://openclaw.local (LAN)
+# Docs: https://docs.openclaw.ai/
+#
+# Pre-requisite: create the secret with your API keys + gateway token:
+#
+#   kubectl create namespace openclaw
+#   kubectl create secret generic openclaw-env-secret -n openclaw \
+#     --from-literal=OPENCLAW_GATEWAY_TOKEN=<PICK_A_STRONG_TOKEN> \
+#     --from-literal=ANTHROPIC_API_KEY=sk-ant-xxx
+#
+# Add more keys as needed (OPENAI_API_KEY, GOOGLE_AI_API_KEY, TELEGRAM_BOT_TOKEN, etc.)
+#
+# Note: OpenClaw is single-instance by design (WebSocket state, session store).
+# It cannot scale horizontally. The pod can schedule on any node - Longhorn
+# handles storage portability if the pod moves.
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: openclaw
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: openclaw-pvc
+  namespace: openclaw
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: longhorn
+  resources:
+    requests:
+      storage: 2Gi
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: openclaw-config
+  namespace: openclaw
+data:
+  openclaw.json: |
+    {
+      "gateway": {
+        "port": 18789,
+        "mode": "local",
+        "bind": "lan"
+      },
+      "browser": {
+        "enabled": false
+      },
+      "agents": {
+        "defaults": {
+          "workspace": "/home/node/.openclaw/workspace",
+          "model": {
+            "primary": "anthropic/claude-sonnet-4-20250514"
+          }
+        }
+      }
+    }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: openclaw
+  namespace: openclaw
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: openclaw
+  strategy:
+    type: Recreate          # PVC is ReadWriteOnce - can't have two pods
+  template:
+    metadata:
+      labels:
+        app: openclaw
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
+      initContainers:
+        # Merge Helm-style config into PVC on startup
+        - name: init-config
+          image: ghcr.io/openclaw/openclaw:2026.2.12
+          command:
+            - sh
+            - -c
+            - |
+              set -e
+              mkdir -p /home/node/.openclaw/workspace
+              if [ ! -f /home/node/.openclaw/openclaw.json ]; then
+                echo "First run - seeding config from ConfigMap"
+                cp /config/openclaw.json /home/node/.openclaw/openclaw.json
+              else
+                echo "Config exists - preserving runtime changes"
+              fi
+          volumeMounts:
+            - name: data
+              mountPath: /home/node/.openclaw
+            - name: config
+              mountPath: /config
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+          securityContext:
+            runAsUser: 1000
+            runAsGroup: 1000
+            runAsNonRoot: true
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              memory: "32Mi"
+              cpu: "10m"
+              ephemeral-storage: "64Mi"
+            limits:
+              memory: "64Mi"
+              cpu: "100m"
+              ephemeral-storage: "128Mi"
+      containers:
+        - name: openclaw
+          image: ghcr.io/openclaw/openclaw:2026.2.12
+          command: ["node", "dist/index.js"]
+          args: ["gateway", "--bind", "lan", "--port", "18789"]
+          ports:
+            - name: http
+              containerPort: 18789
+              protocol: TCP
+          envFrom:
+            - secretRef:
+                name: openclaw-env-secret
+          volumeMounts:
+            - name: data
+              mountPath: /home/node/.openclaw
+            - name: tmp
+              mountPath: /tmp
+          securityContext:
+            runAsUser: 1000
+            runAsGroup: 1000
+            runAsNonRoot: true
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              memory: "192Mi"
+              cpu: "75m"
+              ephemeral-storage: "128Mi"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+              ephemeral-storage: "512Mi"
+          readinessProbe:
+            tcpSocket:
+              port: 18789
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: 18789
+            initialDelaySeconds: 30
+            periodSeconds: 30
+          startupProbe:
+            tcpSocket:
+              port: 18789
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            failureThreshold: 30
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: openclaw-pvc
+        - name: config
+          configMap:
+            name: openclaw-config
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: openclaw-service
+  namespace: openclaw
+spec:
+  selector:
+    app: openclaw
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 18789
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: openclaw-ingress
+  namespace: openclaw
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: web
+spec:
+  rules:
+    - host: openclaw.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: openclaw-service
+                port:
+                  number: 80

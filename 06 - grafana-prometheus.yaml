@@ -158,9 +158,11 @@ spec:
             requests:
               memory: "128Mi"
               cpu: "50m"
+              ephemeral-storage: "128Mi"
             limits:
               memory: "384Mi"
               cpu: "300m"
+              ephemeral-storage: "512Mi"
           readinessProbe:
             httpGet:
               path: /-/ready
@@ -212,6 +214,7 @@ spec:
       labels:
         app: node-exporter
     spec:
+      automountServiceAccountToken: false
       hostPID: true
       hostNetwork: true
       dnsPolicy: ClusterFirstWithHostNet
@@ -242,9 +245,11 @@ spec:
             requests:
               memory: "32Mi"
               cpu: "25m"
+              ephemeral-storage: "32Mi"
             limits:
               memory: "64Mi"
               cpu: "100m"
+              ephemeral-storage: "128Mi"
       volumes:
         - name: rootfs
           hostPath:
@@ -476,6 +481,7 @@ spec:
       labels:
         app: grafana
     spec:
+      automountServiceAccountToken: false
       securityContext:
         fsGroup: 472
         runAsUser: 472
@@ -489,7 +495,7 @@ spec:
             - name: GF_SECURITY_ADMIN_USER
               value: admin
             - name: GF_SECURITY_ADMIN_PASSWORD
-              value: admin                  # CHANGE ON FIRST LOGIN — or replace with a K8s Secret
+              value: admin                  # CHANGE ON FIRST LOGIN - or replace with a K8s Secret
             - name: GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH
               value: /var/lib/grafana/dashboards/pi-cluster-overview.json
             - name: GF_INSTALL_PLUGINS
@@ -507,9 +513,11 @@ spec:
             requests:
               memory: "128Mi"
               cpu: "50m"
+              ephemeral-storage: "64Mi"
             limits:
               memory: "256Mi"
               cpu: "250m"
+              ephemeral-storage: "256Mi"
           readinessProbe:
             httpGet:
               path: /api/health

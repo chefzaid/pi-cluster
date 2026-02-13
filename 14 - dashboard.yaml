@@ -121,6 +121,12 @@ data:
             description: Stremio addon aggregator
             namespace: aiostreams
             app: aiostreams
+        - OpenClaw:
+            icon: mdi-robot
+            href: http://openclaw.local
+            description: AI assistant gateway
+            namespace: openclaw
+            app: openclaw
     - Monitoring:
         - Grafana:
             icon: grafana
@@ -179,9 +185,11 @@ spec:
             requests:
               memory: "48Mi"
               cpu: "15m"
+              ephemeral-storage: "64Mi"
             limits:
               memory: "128Mi"
               cpu: "150m"
+              ephemeral-storage: "256Mi"
           readinessProbe:
             httpGet:
               path: /

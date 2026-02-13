@@ -45,12 +45,13 @@ spec:
     matchLabels:
       app: adguard-home
   strategy:
-    type: Recreate    # PVC is ReadWriteOnce — can't have two pods
+    type: Recreate    # PVC is ReadWriteOnce - can't have two pods
   template:
     metadata:
       labels:
         app: adguard-home
     spec:
+      automountServiceAccountToken: false
       containers:
         - name: adguard-home
           image: adguard/adguardhome:v0.107.55
@@ -73,9 +74,11 @@ spec:
             requests:
               memory: "48Mi"
               cpu: "25m"
+              ephemeral-storage: "64Mi"
             limits:
               memory: "128Mi"
               cpu: "200m"
+              ephemeral-storage: "256Mi"
           readinessProbe:
             httpGet:
               path: /
@@ -96,7 +99,7 @@ spec:
           persistentVolumeClaim:
             claimName: adguard-conf-pvc
 ---
-# DNS service — NodePort so every device on the LAN can use <NODE_IP>:53
+# DNS service - NodePort so every device on the LAN can use <NODE_IP>:53
 apiVersion: v1
 kind: Service
 metadata:
@@ -129,7 +132,7 @@ spec:
       targetPort: 53
       nodePort: 30053
 ---
-# Web UI service — ClusterIP, exposed via Traefik ingress
+# Web UI service - ClusterIP, exposed via Traefik ingress
 apiVersion: v1
 kind: Service
 metadata:
