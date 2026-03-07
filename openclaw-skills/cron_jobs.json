@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "jobs": [
+    {
+      "id": "youtube-dj-sets-weekly",
+      "name": "YouTube DJ Sets",
+      "description": "Weekly YouTube DJ set curator - finds 5 new unwatched electro/techno/house DJ sets (>50 min) and adds them to the DJ Sets playlist.",
+      "enabled": true,
+      "createdAtMs": 1740873600000,
+      "updatedAtMs": 1740873600000,
+      "schedule": {
+        "kind": "cron",
+        "expr": "0 20 * * 0",
+        "tz": "Europe/Paris"
+      },
+      "sessionTarget": "isolated",
+      "wakeMode": "next-heartbeat",
+      "payload": {
+        "kind": "agentTurn",
+        "message": "Run the youtube-dj-sets skill: search YouTube for 5 new unwatched DJ sets (electro, techno, house, melodic techno, trance) longer than 50 minutes from the reference artist list in the skill. Add them to the \"DJ Sets\" playlist. Follow the full workflow described in the youtube-dj-sets skill."
+      },
+      "deleteAfterRun": false
+    }
+  ]
+}

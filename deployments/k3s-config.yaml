@@ -1,0 +1,44 @@
+# K3s config optimized for Raspberry Pi 4 cluster
+# Place at /etc/rancher/k3s/config.yaml on ALL nodes.
+#
+# For the SERVER node, this file is used as-is.
+# For AGENT (worker) nodes, the install script extracts only the kubelet-arg
+# section (agents reject server-only keys like kube-apiserver-arg).
+
+# ──────────────────────────────────────────────
+# Kubelet - resource management for Pi4 (4GB RAM)
+#   Applies to: server + agents
+# ──────────────────────────────────────────────
+kubelet-arg:
+  - "eviction-hard=memory.available<200Mi,nodefs.available<10%"
+  - "eviction-soft=memory.available<500Mi,nodefs.available<15%"
+  - "eviction-soft-grace-period=memory.available=1m30s,nodefs.available=1m30s"
+  - "kube-reserved=cpu=150m,memory=256Mi"
+  - "system-reserved=cpu=150m,memory=256Mi"
+  - "max-pods=40"
+  # Fast reboot recovery: report node status every 10s (k8s default)
+  - "node-status-update-frequency=10s"
+
+# ──────────────────────────────────────────────
+# Controller Manager - fast node failure detection
+#   Applies to: server only (ignored by agents)
+# ──────────────────────────────────────────────
+kube-controller-manager-arg:
+  - "node-monitor-period=5s"
+  # Grace period before marking node unreachable (≥5× update-frequency)
+  - "node-monitor-grace-period=40s"
+  # Clean up terminated/failed pods faster (default 12500)
+  - "terminated-pod-gc-threshold=50"
+
+# ──────────────────────────────────────────────
+# API Server - fast pod eviction on node failure
+#   Applies to: server only (ignored by agents)
+# ──────────────────────────────────────────────
+# These are admission-controller defaults injected into every new pod.
+# Default is 300s (5 min!) - way too slow for reboot recovery.
+kube-apiserver-arg:
+  - "default-not-ready-toleration-seconds=30"
+  - "default-unreachable-toleration-seconds=30"
+
+# Server only (ignored by agents)
+write-kubeconfig-mode: "0644"

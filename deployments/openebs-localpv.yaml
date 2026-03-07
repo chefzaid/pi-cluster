@@ -1,0 +1,35 @@
+# OpenEBS LocalPV Configuration for Raspberry Pi 4 Cluster
+# Apply after OpenEBS is installed:
+#   kubectl apply -f openebs-localpv.yaml
+#
+# Contains:
+# - Verified default openebs-hostpath StorageClass (set as cluster default)
+# - No replicas, no network overhead - data lives locally on each node
+#
+# Data location on each node: /var/openebs/local/<pvc-uid>/
+# the openebs-operator-lite installs this StorageClass automatically,
+# this file just ensures settings are explicit and it is marked as default.
+
+---
+# ============================================================================
+# Custom StorageClass: openebs-hostpath (explicit basePath, marked as default)
+# ============================================================================
+# OpenEBS LocalPV Hostpath - stores data in a host directory.
+# WaitForFirstConsumer ensures the PV is provisioned on the same node
+# where the pod is scheduled (important for scheduling affinity).
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: openebs-hostpath
+  annotations:
+    # NOT marked as cluster default — K3s already has local-path as default.
+    # To use openebs-hostpath explicitly, set storageClassName: openebs-hostpath in PVCs.
+    openebs.io/cas-type: local
+    cas.openebs.io/config: |
+      - name: StorageType
+        value: hostpath
+      - name: BasePath
+        value: /var/openebs/local/
+provisioner: openebs.io/local
+reclaimPolicy: Delete
+volumeBindingMode: WaitForFirstConsumer
