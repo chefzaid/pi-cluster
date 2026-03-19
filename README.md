@@ -56,7 +56,7 @@ Run a single script that installs everything interactively:
 
 ```bash
 # Clone the repo on pi-node-01 (control plane)
-ssh zaid@
+ssh zaid@192.168.1.191
 git clone https://github.com/chefzaid/pi-cluster.git
 cd pi-cluster
 
