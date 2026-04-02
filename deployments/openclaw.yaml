@@ -90,7 +90,7 @@ spec:
       initContainers:
         # Seed config from ConfigMap into PVC on every startup
         - name: init-config
-          image: ghcr.io/openclaw/openclaw:2026.2.26
+          image: ghcr.io/openclaw/openclaw:2026.4.1-arm64
           imagePullPolicy: IfNotPresent
           command:
             - sh
@@ -125,7 +125,7 @@ spec:
               cpu: "200m"
       containers:
         - name: openclaw
-          image: ghcr.io/openclaw/openclaw:2026.2.26
+          image: ghcr.io/openclaw/openclaw:2026.4.1-arm64
           imagePullPolicy: IfNotPresent
           command: ["node", "dist/index.js"]
           args: ["gateway"]
