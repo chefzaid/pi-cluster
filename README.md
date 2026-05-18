@@ -25,7 +25,7 @@
 |----------------------------|----------------------------------------------------------------------------|
 | `install-k3s.sh`           | Install K3s control plane or join as worker node                           |
 | `node-setup.sh`            | Flannel fix + reboot cleanup service + UFW firewall                        |
-| `install-vnc-desktop.sh`   | Install XFCE4 + TigerVNC + Firefox (for Guacamole)                         |
+| `install-vnc-desktop.sh`   | Install XFCE4 + TigerVNC + native Firefox DEB (for Guacamole)              |
 | `install-tailscale.sh`     | Install Tailscale and advertise home LAN route from Pi                     |
 | `openebs-install.sh`       | Install OpenEBS LocalPV provisioner                                        |
 
@@ -227,6 +227,8 @@ RDP performance tips:
 ### Adding a VNC connection (Pi control plane desktop)
 
 This connects to the TigerVNC desktop installed in step 6.
+
+The installer pulls Firefox from Mozilla's APT repository instead of Ubuntu's snap-backed transitional package, because the snap build is unreliable in TigerVNC sessions and can fail to launch from the desktop/menu.
 
 1. Go to **Settings** → **Connections** → **New Connection**
 2. Configure:

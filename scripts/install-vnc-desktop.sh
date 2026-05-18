@@ -1,6 +1,6 @@
 #!/bin/bash
 # VNC Desktop Environment Setup for Raspberry Pi 4 (Ubuntu 24.04)
-# Installs XFCE4 (lightweight) + TigerVNC + Firefox
+# Installs XFCE4 (lightweight) + TigerVNC + native Firefox DEB
 # Optimized for Pi4 running K3s (minimal resource overhead)
 #
 # Usage: sudo bash install-vnc-desktop.sh [VNC_PASSWORD]
@@ -13,6 +13,10 @@ set -e
 VNC_PASSWORD="${1:-raspberry}"
 SUDO_USER_NAME="${SUDO_USER:-$(whoami)}"
 SUDO_USER_HOME=$(eval echo ~${SUDO_USER_NAME})
+MOZILLA_KEYRING="/etc/apt/keyrings/packages.mozilla.org.asc"
+MOZILLA_SOURCE_LIST="/etc/apt/sources.list.d/mozilla.list"
+MOZILLA_PREFERENCE="/etc/apt/preferences.d/mozilla"
+MOZILLA_FINGERPRINT="35BAA0B33E9EB396F59CA838C0BA5CE6DC6315A3"
 
 if [ "$(id -u)" -ne 0 ]; then
   echo "ERROR: Run with sudo"
@@ -31,6 +35,9 @@ export DEBIAN_FRONTEND=noninteractive
 
 apt-get update -qq
 apt-get install -y -qq \
+  ca-certificates \
+  curl \
+  gnupg \
   xfce4 \
   xfce4-terminal \
   xfce4-settings \
@@ -70,10 +77,45 @@ echo "  TigerVNC installed"
 # ──────────────────────────────────────────────
 echo ""
 echo "[3/6] Installing Firefox..."
-# IMPORTANT: Use native deb Firefox, NOT snap!
-# Snap apps have issues with VNC/remote X sessions due to confinement
-apt-get install -y -qq firefox 2>/dev/null || apt-get install -y -qq firefox-esr 2>/dev/null
-echo "  Firefox installed (native deb, not snap)"
+# IMPORTANT: Ubuntu 24.04's archive firefox package is only a snap transition.
+# Snap Firefox often fails in TigerVNC/X11 sessions, so install Mozilla's native DEB.
+install -d -m 0755 /etc/apt/keyrings
+curl -fsSL https://packages.mozilla.org/apt/repo-signing-key.gpg -o "${MOZILLA_KEYRING}"
+
+GNUPG_TMP_DIR=$(mktemp -d)
+ACTUAL_FINGERPRINT=$(
+  GNUPGHOME="${GNUPG_TMP_DIR}" gpg --batch --quiet --show-keys --with-colons "${MOZILLA_KEYRING}" \
+    | awk -F: '$1 == "fpr" { print $10; exit }'
+)
+rm -rf "${GNUPG_TMP_DIR}"
+
+if [ "${ACTUAL_FINGERPRINT}" != "${MOZILLA_FINGERPRINT}" ]; then
+  echo "ERROR: Mozilla APT key fingerprint mismatch: ${ACTUAL_FINGERPRINT}"
+  exit 1
+fi
+
+cat > "${MOZILLA_SOURCE_LIST}" << 'EOF'
+deb [signed-by=/etc/apt/keyrings/packages.mozilla.org.asc] https://packages.mozilla.org/apt mozilla main
+EOF
+
+cat > "${MOZILLA_PREFERENCE}" << 'EOF'
+Package: *
+Pin: origin packages.mozilla.org
+Pin-Priority: 1000
+EOF
+
+INSTALLED_FIREFOX_VERSION=$(dpkg-query -W -f='${Version}' firefox 2>/dev/null || true)
+if [[ "${INSTALLED_FIREFOX_VERSION}" == *snap* ]]; then
+  apt-get purge -y -qq firefox >/dev/null 2>&1 || true
+fi
+
+if command -v snap >/dev/null 2>&1 && snap list firefox >/dev/null 2>&1; then
+  snap remove --purge firefox >/dev/null 2>&1 || true
+fi
+
+apt-get update -qq
+apt-get install -y -qq firefox
+echo "  Firefox installed from Mozilla APT repo (native DEB)"
 
 # ──────────────────────────────────────────────
 # Step 4: Configure VNC for the user
@@ -108,9 +150,12 @@ cat > "${SUDO_USER_HOME}/.vnc/xstartup" << 'XSTARTUP'
 unset SESSION_MANAGER
 unset DBUS_SESSION_BUS_ADDRESS
 
-# CRITICAL: Set XAUTHORITY for snap applications to work in VNC
+# Ensure desktop apps launched from VNC inherit the expected X11 runtime state
 export XAUTHORITY=$HOME/.Xauthority
 export DISPLAY=:1
+export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-$HOME/.vnc/runtime}"
+mkdir -p -m 700 "$XDG_RUNTIME_DIR"
+chmod 700 "$XDG_RUNTIME_DIR"
 
 # Fix color scheme / GTK warnings
 export XDG_SESSION_TYPE=x11
