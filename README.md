@@ -40,9 +40,17 @@
 | `guacamole.yaml`           | Guacamole all-in-one, OpenEBS PVC (`guacamole-pvc`, 1Gi)                   |
 | `openwebui.yaml`           | Open WebUI AI chat                                                         |
 | `openclaw.yaml`            | OpenClaw AI assistant gateway, OpenEBS PVC (`openclaw-pvc`, 2Gi)           |
+| `aiostreams.yaml`          | AIOStreams Stremio addon aggregator, OpenEBS PVC (`aiostreams-pvc`, 1Gi)   |
 | `adguard.yaml`             | AdGuard Home DNS, OpenEBS PVCs (`adguard-work-pvc` 1Gi, `conf` 256Mi)      |
 | `portainer.yaml`           | Portainer UI to manage Kubernetes + service account/cluster RBAC           |
 | `dashboard.yaml`           | Homepage dashboard (CPU, RAM, temperature, service status)                 |
+
+### Ansible (`ansible/`)
+
+| File                       | Purpose                                                                    |
+|----------------------------|----------------------------------------------------------------------------|
+| `deploy-aiostreams.yml`    | Optional AIOStreams deployment flow with prompts and generated secret key   |
+| `inventory.example.ini`    | Example control-plane inventory for Ansible runs                           |
 
 ## Local Network Access
 
@@ -94,6 +102,7 @@ In the Cloudflare dashboard, go to your tunnel → **Public Hostname** tab → *
 |----------------|---------------|---------|---------------------------------------------------------|
 | `remote`       | `swirlit.dev` | HTTP    | `guacamole-service.guacamole.svc.cluster.local:80`      |
 | `ai`           | `swirlit.dev` | HTTP    | `open-webui-service.ai.svc.cluster.local:80`            |
+| `aiostreams`   | `swirlit.dev` | HTTP    | `aiostreams-service.media.svc.cluster.local:80`         |
 
 ### c) Protect internet-exposed apps with Cloudflare Access (email OTP)
 
@@ -329,11 +338,49 @@ OpenClaw skills are managed independently from the main cluster install. See [`o
 
 ---
 
+## Setting up AIOStreams
+
+AIOStreams is installed only if you answer `y` to the installer prompt. The installer asks for `BASE_URL` and generates the required 64-character `SECRET_KEY`.
+
+- For this cluster, accept the default `https://aiostreams.swirlit.dev`
+- For local-only use, enter `http://aiostreams.local`
+
+Access the configuration UI:
+
+```bash
+https://aiostreams.swirlit.dev/stremio/configure
+```
+
+Local NodePort access is also available:
+
+```bash
+http://pi-cluster.local:30300/stremio/configure
+```
+
+If you use the ingress hostname directly, add `aiostreams.local` to your hosts file and open:
+
+```bash
+http://aiostreams.local/stremio/configure
+```
+
+The `SECRET_KEY` is stored in the Kubernetes secret `aiostreams-env` and must not be changed after first run because it encrypts saved addon configurations.
+
+You can deploy AIOStreams independently with Ansible from a machine that can SSH to the control plane:
+
+```bash
+ansible-playbook -i ansible/inventory.example.ini ansible/deploy-aiostreams.yml
+```
+
+See the [AIOStreams deployment docs](https://github.com/Viren070/AIOStreams/wiki/Deployment) and [project README](https://github.com/Viren070/AIOStreams) for setup details and usage notes.
+
+---
+
 ## Mandatory post-deployment checklist
 
 1. **VNC password:** Change from default `raspberry` - run `vncpasswd` on the Pi. You may need to restart the server.
 2. **Guacamole:** Delete the default `guacadmin` account immediately
 3. **Grafana:** Change the default `admin`/`admin` password on first login
 4. **Open WebUI:** Create your admin account before anyone else can
-5. **Cloudflare Access:** Set up email OTP, at least for `remote` and `ai` subdomains
-6. **Tailscale:** Approve the advertised route in Tailscale admin so your DS can reach the home LAN
+5. **AIOStreams:** Use a stable `BASE_URL`; changing it later can break generated install URLs
+6. **Cloudflare Access:** Set up email OTP, at least for `remote`, `ai`, and `aiostreams` subdomains
+7. **Tailscale:** Approve the advertised route in Tailscale admin so your DS can reach the home LAN

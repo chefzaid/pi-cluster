@@ -1,0 +1,138 @@
+# AIOStreams - self-hosted Stremio addon aggregator
+# Web UI available at http://aiostreams.local/stremio/configure (LAN)
+#
+# Pre-requisite: create the bootstrap secret before applying:
+#
+#   kubectl create namespace media --dry-run=client -o yaml | kubectl apply -f -
+#   kubectl create secret generic aiostreams-env -n media \
+#     --from-literal=BASE_URL=https://aiostreams.swirlit.dev \
+#     --from-literal=SECRET_KEY=$(openssl rand -hex 32) \
+#     --from-literal=DATABASE_URI=sqlite://./data/db.sqlite
+#
+# If exposing publicly through Cloudflare, set BASE_URL to the public HTTPS URL
+# instead, e.g. https://aiostreams.swirlit.dev. SECRET_KEY must not be changed
+# after first run because it encrypts saved addon configurations.
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: media
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: aiostreams-pvc
+  namespace: media
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: openebs-hostpath
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: aiostreams
+  namespace: media
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: aiostreams
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: aiostreams
+    spec:
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 15
+      containers:
+        - name: aiostreams
+          image: ghcr.io/viren070/aiostreams:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 3000
+              protocol: TCP
+          envFrom:
+            - secretRef:
+                name: aiostreams-env
+          env:
+            - name: NODE_OPTIONS
+              value: "--max-old-space-size=1536"
+          volumeMounts:
+            - name: data
+              mountPath: /app/data
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "200m"
+            limits:
+              memory: "2Gi"
+              cpu: "1000m"
+          startupProbe:
+            httpGet:
+              path: /
+              port: 3000
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 60
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 3000
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 5
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 3000
+            initialDelaySeconds: 180
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 5
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: aiostreams-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: aiostreams-service
+  namespace: media
+spec:
+  type: NodePort
+  selector:
+    app: aiostreams
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 3000
+      nodePort: 30300
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: aiostreams-ingress
+  namespace: media
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: web
+spec:
+  rules:
+    - host: aiostreams.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: aiostreams-service
+                port:
+                  number: 80

@@ -115,6 +115,10 @@ data:
             description: DNS ad blocker
 
     - Public Apps:
+        - AIOStreams:
+            icon: https://raw.githubusercontent.com/Viren070/AIOStreams/main/branding/SVG/Logo%20White.svg
+            href: https://aiostreams.swirlit.dev/stremio/configure
+            description: Stremio addon aggregator
         - Guacamole:
             icon: guacamole
             href: https://remote.swirlit.dev

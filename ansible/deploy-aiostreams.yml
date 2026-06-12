@@ -1,0 +1,112 @@
+---
+- name: Deploy AIOStreams to the Pi K3s cluster
+  hosts: control_plane
+  become: true
+  gather_facts: false
+  vars:
+    deployments_dir: "{{ playbook_dir }}/../deployments"
+    kubeconfig: /etc/rancher/k3s/k3s.yaml
+
+  tasks:
+    - name: Ask whether to install AIOStreams
+      ansible.builtin.pause:
+        prompt: "Install AIOStreams? (y/N)"
+      register: aiostreams_install_prompt
+
+    - name: Normalize AIOStreams install choice
+      ansible.builtin.set_fact:
+        install_aiostreams: "{{ (aiostreams_install_prompt.user_input | default('n')) is match('^[Yy]') }}"
+
+    - name: Ask for AIOStreams base URL
+      ansible.builtin.pause:
+        prompt: "AIOStreams BASE_URL [https://aiostreams.swirlit.dev]"
+      register: aiostreams_base_url_prompt
+      when: install_aiostreams
+
+    - name: Ask for AIOStreams secret key
+      ansible.builtin.pause:
+        prompt: "AIOStreams SECRET_KEY, 64-char hex (leave blank to preserve existing or generate)"
+        echo: false
+      register: aiostreams_secret_key_prompt
+      when: install_aiostreams
+
+    - name: Read existing AIOStreams secret key
+      ansible.builtin.command:
+        cmd: "kubectl get secret aiostreams-env -n media -o jsonpath='{.data.SECRET_KEY}'"
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+      register: existing_aiostreams_secret_key_encoded
+      changed_when: false
+      failed_when: false
+      no_log: true
+      when: install_aiostreams
+
+    - name: Decode existing AIOStreams secret key
+      ansible.builtin.set_fact:
+        existing_aiostreams_secret_key: "{{ existing_aiostreams_secret_key_encoded.stdout | b64decode }}"
+      no_log: true
+      when:
+        - install_aiostreams
+        - existing_aiostreams_secret_key_encoded.rc == 0
+        - existing_aiostreams_secret_key_encoded.stdout | length > 0
+
+    - name: Set AIOStreams bootstrap values
+      ansible.builtin.set_fact:
+        aiostreams_base_url: "{{ aiostreams_base_url_prompt.user_input | default('', true) | ternary(aiostreams_base_url_prompt.user_input, 'https://aiostreams.swirlit.dev') }}"
+        aiostreams_secret_key: "{{ aiostreams_secret_key_prompt.user_input | default('', true) or existing_aiostreams_secret_key | default('', true) or lookup('pipe', 'openssl rand -hex 32') }}"
+      when: install_aiostreams
+
+    - name: Validate AIOStreams secret key format
+      ansible.builtin.assert:
+        that:
+          - aiostreams_secret_key is match('^[0-9a-fA-F]{64}$')
+        fail_msg: "AIOStreams SECRET_KEY must be a 64-character hex string."
+      when: install_aiostreams
+
+    - name: Create media namespace
+      ansible.builtin.shell: |
+        kubectl create namespace media --dry-run=client -o yaml | kubectl apply -f -
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+      changed_when: false
+      when: install_aiostreams
+
+    - name: Create or update AIOStreams bootstrap secret
+      ansible.builtin.shell: |
+        kubectl create secret generic aiostreams-env \
+          --namespace media \
+          --from-literal=BASE_URL={{ aiostreams_base_url | quote }} \
+          --from-literal=SECRET_KEY={{ aiostreams_secret_key | quote }} \
+          --from-literal=DATABASE_URI=sqlite://./data/db.sqlite \
+          --dry-run=client -o yaml | kubectl apply -f -
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+      no_log: true
+      when: install_aiostreams
+
+    - name: Copy AIOStreams manifest to control plane
+      ansible.builtin.copy:
+        src: "{{ deployments_dir }}/aiostreams.yaml"
+        dest: /tmp/aiostreams.yaml
+        mode: "0644"
+      when: install_aiostreams
+
+    - name: Apply AIOStreams manifest
+      ansible.builtin.command:
+        cmd: kubectl apply -f /tmp/aiostreams.yaml
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+      when: install_aiostreams
+
+    - name: Wait for AIOStreams to become ready
+      ansible.builtin.command:
+        cmd: kubectl -n media rollout status deployment/aiostreams --timeout=180s
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+      changed_when: false
+      when: install_aiostreams
+
+    - name: Show AIOStreams access URL
+      ansible.builtin.debug:
+        msg: "AIOStreams is available at {{ aiostreams_base_url }}/stremio/configure and http://pi-cluster.local:30300/stremio/configure"
+      when: install_aiostreams
