@@ -1,6 +1,6 @@
-# K3s Raspberry Pi 4 Cluster
+# Pi 4 Cluster
 
-4-node K3s cluster on Raspberry Pi 4 (4GB) running Ubuntu 24.04 LTS.
+Setup for 4-nodes cluster of Raspberry Pi 4 to self-host a mini home lab and necessary utilities.
 
 ## Hardware
 
