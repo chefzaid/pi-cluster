@@ -123,11 +123,6 @@ data:
             icon: guacamole
             href: https://remote.swirlit.dev
             description: Remote desktop gateway
-        - Open WebUI:
-            icon: open-webui
-            href: https://ai.swirlit.dev
-            description: AI chatbot interface
-
   bookmarks.yaml: |
     - Management:
         - GitHub Repo:

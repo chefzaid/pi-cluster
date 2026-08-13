@@ -196,7 +196,6 @@ REQUIRED_DEPLOYMENTS=(
   "grafana-prometheus.yaml"
   "cloudflare.yaml"
   "guacamole.yaml"
-  "openwebui.yaml"
   "openclaw.yaml"
   "aiostreams.yaml"
   "adguard.yaml"
@@ -277,17 +276,6 @@ echo -e "${CYAN}Guacamole Remote Desktop${NC}"
 prompt_input INSTALL_GUACAMOLE "Install Guacamole? (y/n)" "n"
 echo ""
 
-# Open WebUI
-echo -e "${CYAN}Open WebUI (AI Chat Frontend)${NC}"
-prompt_input INSTALL_OPENWEBUI "Install Open WebUI? (y/n)" "n"
-if [[ "$INSTALL_OPENWEBUI" =~ ^[Yy] ]]; then
-  if [ -z "$OPENROUTER_API_KEY" ]; then
-    echo "Get an OpenRouter API key from: https://openrouter.ai/keys"
-    prompt_input OPENROUTER_API_KEY "OpenRouter API key (sk-or-v1-...)" "" true
-  fi
-fi
-echo ""
-
 # OpenClaw
 echo -e "${CYAN}OpenClaw AI Assistant Gateway${NC}"
 prompt_input INSTALL_OPENCLAW "Install OpenClaw? (y/n)" "n"
@@ -338,7 +326,6 @@ echo "  - OpenEBS LocalPV (local storage)"
 [[ "$INSTALL_CLOUDFLARE" =~ ^[Yy] ]] && echo "  - Cloudflare tunnel"
 [[ "$INSTALL_TAILSCALE" =~ ^[Yy] ]] && echo "  - Tailscale subnet router (${TAILSCALE_ROUTES})"
 [[ "$INSTALL_GUACAMOLE" =~ ^[Yy] ]] && echo "  - Guacamole (remote desktop gateway)"
-[[ "$INSTALL_OPENWEBUI" =~ ^[Yy] ]] && echo "  - Open WebUI (AI chat)"
 [[ "$INSTALL_OPENCLAW" =~ ^[Yy] ]] && echo "  - OpenClaw (AI assistant gateway)"
 [[ "$INSTALL_AIOSTREAMS" =~ ^[Yy] ]] && echo "  - AIOStreams (Stremio addon aggregator)"
 [[ "$INSTALL_ADGUARD" =~ ^[Yy] ]] && echo "  - AdGuard Home (DNS ad blocker)"
@@ -364,18 +351,18 @@ fi
 print_header "Phase 1: Core Infrastructure"
 
 # Step 1a: Apply K3s config BEFORE installation
-echo -e "${CYAN}[1a/15] Applying K3s configuration...${NC}"
+echo -e "${CYAN}[1a/14] Applying K3s configuration...${NC}"
 mkdir -p /etc/rancher/k3s
 cp "${DEPLOYMENTS_DIR}/k3s-config.yaml" /etc/rancher/k3s/config.yaml
 print_step "K3s config applied"
 
 # Step 1b: Install K3s
-echo -e "${CYAN}[1b/15] Installing K3s...${NC}"
+echo -e "${CYAN}[1b/14] Installing K3s...${NC}"
 bash "${SCRIPT_DIR}/install-k3s.sh"
 print_step "K3s installed"
 
 # Step 1c: Node setup on control plane
-echo -e "${CYAN}[1c/15] Running node setup on control plane...${NC}"
+echo -e "${CYAN}[1c/14] Running node setup on control plane...${NC}"
 bash "${SCRIPT_DIR}/node-setup.sh" "10.42.0.1/24" --server
 print_step "Node setup applied on control plane"
 
@@ -388,15 +375,15 @@ echo ""
 
 # Step 2: VNC Desktop (if enabled)
 if [[ "$INSTALL_VNC" =~ ^[Yy] ]]; then
-  echo -e "${CYAN}[2/15] Installing VNC desktop...${NC}"
+  echo -e "${CYAN}[2/14] Installing VNC desktop...${NC}"
   bash "${SCRIPT_DIR}/install-vnc-desktop.sh" "$VNC_PASSWORD"
   print_step "VNC desktop installed"
 else
-  echo -e "${CYAN}[2/15] Skipping VNC desktop${NC}"
+  echo -e "${CYAN}[2/14] Skipping VNC desktop${NC}"
 fi
 
 # Step 3: OpenEBS LocalPV
-echo -e "${CYAN}[3/15] Installing OpenEBS LocalPV...${NC}"
+echo -e "${CYAN}[3/14] Installing OpenEBS LocalPV...${NC}"
 bash "${SCRIPT_DIR}/openebs-install.sh"
 print_step "OpenEBS LocalPV installed"
 
@@ -447,12 +434,12 @@ print_header "Phase 3: Monitoring"
 
 # Step 4: Prometheus + Grafana
 if [[ "$INSTALL_MONITORING" =~ ^[Yy] ]]; then
-  echo -e "${CYAN}[4/15] Installing Prometheus + Grafana...${NC}"
+  echo -e "${CYAN}[4/14] Installing Prometheus + Grafana...${NC}"
   kubectl apply -f "${DEPLOYMENTS_DIR}/grafana-prometheus.yaml"
   wait_for_pods "monitoring" 300
   print_step "Prometheus + Grafana installed"
 else
-  echo -e "${CYAN}[4/15] Skipping Prometheus + Grafana${NC}"
+  echo -e "${CYAN}[4/14] Skipping Prometheus + Grafana${NC}"
 fi
 
 # ============================================================================
@@ -463,7 +450,7 @@ print_header "Phase 4: Networking & Tunnels"
 
 # Step 5: Cloudflare Tunnel
 if [[ "$INSTALL_CLOUDFLARE" =~ ^[Yy] ]] && [ -n "$CLOUDFLARE_TOKEN" ]; then
-  echo -e "${CYAN}[5/15] Installing Cloudflare tunnel...${NC}"
+  echo -e "${CYAN}[5/14] Installing Cloudflare tunnel...${NC}"
   
   # Create namespace and secret
   kubectl create namespace cloudflared --dry-run=client -o yaml | kubectl apply -f -
@@ -476,19 +463,19 @@ if [[ "$INSTALL_CLOUDFLARE" =~ ^[Yy] ]] && [ -n "$CLOUDFLARE_TOKEN" ]; then
   wait_for_pods "cloudflared" 120
   print_step "Cloudflare tunnel installed"
 else
-  echo -e "${CYAN}[5/15] Skipping Cloudflare tunnel${NC}"
+  echo -e "${CYAN}[5/14] Skipping Cloudflare tunnel${NC}"
 fi
 
 # Step 6: Tailscale subnet router (host-level)
 if [[ "$INSTALL_TAILSCALE" =~ ^[Yy] ]] && [ -n "$TAILSCALE_AUTHKEY" ]; then
-  echo -e "${CYAN}[6/15] Installing Tailscale subnet router...${NC}"
+  echo -e "${CYAN}[6/14] Installing Tailscale subnet router...${NC}"
   TAILSCALE_AUTHKEY="$TAILSCALE_AUTHKEY" \
   TAILSCALE_ROUTES="$TAILSCALE_ROUTES" \
   TAILSCALE_HOSTNAME="$TAILSCALE_HOSTNAME" \
     bash "${SCRIPT_DIR}/install-tailscale.sh"
   print_step "Tailscale subnet router installed"
 else
-  echo -e "${CYAN}[6/15] Skipping Tailscale subnet router${NC}"
+  echo -e "${CYAN}[6/14] Skipping Tailscale subnet router${NC}"
 fi
 
 # ============================================================================
@@ -497,41 +484,21 @@ fi
 
 print_header "Phase 5: Applications"
 
-# Step 6: Guacamole
+# Step 7: Guacamole
 if [[ "$INSTALL_GUACAMOLE" =~ ^[Yy] ]]; then
-  echo -e "${CYAN}[7/15] Installing Guacamole...${NC}"
+  echo -e "${CYAN}[7/14] Installing Guacamole...${NC}"
   kubectl apply -f "${DEPLOYMENTS_DIR}/guacamole.yaml"
   wait_for_pods "guacamole" 180
   print_step "Guacamole installed"
 else
-  echo -e "${CYAN}[7/15] Skipping Guacamole${NC}"
-fi
-
-# Step 7: Open WebUI
-if [[ "$INSTALL_OPENWEBUI" =~ ^[Yy] ]]; then
-  echo -e "${CYAN}[8/15] Installing Open WebUI...${NC}"
-  
-  # Create namespace and secret if API key provided
-  kubectl create namespace ai --dry-run=client -o yaml | kubectl apply -f -
-  if [ -n "$OPENROUTER_API_KEY" ]; then
-    kubectl create secret generic ai-keys \
-      --namespace ai \
-      --from-literal=OPENROUTER_API_KEY="$OPENROUTER_API_KEY" \
-      --dry-run=client -o yaml | kubectl apply -f -
-  fi
-  
-  kubectl apply -f "${DEPLOYMENTS_DIR}/openwebui.yaml"
-  wait_for_pods "ai" 300
-  print_step "Open WebUI installed"
-else
-  echo -e "${CYAN}[8/15] Skipping Open WebUI${NC}"
+  echo -e "${CYAN}[7/14] Skipping Guacamole${NC}"
 fi
 
 # Step 8: OpenClaw
 if [[ "$INSTALL_OPENCLAW" =~ ^[Yy] ]]; then
-  echo -e "${CYAN}[9/15] Installing OpenClaw...${NC}"
+  echo -e "${CYAN}[8/14] Installing OpenClaw...${NC}"
 
-  # ai namespace already created by Open WebUI step (or create it here)
+  # Create the shared AI namespace if needed
   kubectl create namespace ai --dry-run=client -o yaml | kubectl apply -f -
 
   GATEWAY_TOKEN=$(openssl rand -hex 32)
@@ -550,12 +517,12 @@ if [[ "$INSTALL_OPENCLAW" =~ ^[Yy] ]]; then
   echo "  $GATEWAY_TOKEN"
   echo ""
 else
-  echo -e "${CYAN}[9/15] Skipping OpenClaw${NC}"
+  echo -e "${CYAN}[8/14] Skipping OpenClaw${NC}"
 fi
 
 # Step 9: AIOStreams
 if [[ "$INSTALL_AIOSTREAMS" =~ ^[Yy] ]]; then
-  echo -e "${CYAN}[10/15] Installing AIOStreams...${NC}"
+  echo -e "${CYAN}[9/14] Installing AIOStreams...${NC}"
 
   kubectl create namespace media --dry-run=client -o yaml | kubectl apply -f -
   AIOSTREAMS_SECRET_KEY=""
@@ -581,37 +548,37 @@ if [[ "$INSTALL_AIOSTREAMS" =~ ^[Yy] ]]; then
   echo -e "${YELLOW}AIOStreams SECRET_KEY is stored in secret aiostreams-env. Do not rotate it after first run.${NC}"
   echo ""
 else
-  echo -e "${CYAN}[10/15] Skipping AIOStreams${NC}"
+  echo -e "${CYAN}[9/14] Skipping AIOStreams${NC}"
 fi
 
 # Step 10: AdGuard Home
 if [[ "$INSTALL_ADGUARD" =~ ^[Yy] ]]; then
-  echo -e "${CYAN}[11/15] Installing AdGuard Home...${NC}"
+  echo -e "${CYAN}[10/14] Installing AdGuard Home...${NC}"
   kubectl apply -f "${DEPLOYMENTS_DIR}/adguard.yaml"
   wait_for_pods "adguard" 180
   print_step "AdGuard Home installed"
 else
-  echo -e "${CYAN}[11/15] Skipping AdGuard Home${NC}"
+  echo -e "${CYAN}[10/14] Skipping AdGuard Home${NC}"
 fi
 
 # Step 11: Portainer
 if [[ "$INSTALL_PORTAINER" =~ ^[Yy] ]]; then
-  echo -e "${CYAN}[12/15] Installing Portainer...${NC}"
+  echo -e "${CYAN}[11/14] Installing Portainer...${NC}"
   kubectl apply -f "${DEPLOYMENTS_DIR}/portainer.yaml"
   wait_for_pods "portainer" 180
   print_step "Portainer installed"
 else
-  echo -e "${CYAN}[12/15] Skipping Portainer${NC}"
+  echo -e "${CYAN}[11/14] Skipping Portainer${NC}"
 fi
 
 # Step 12: Dashboard
 if [[ "$INSTALL_DASHBOARD" =~ ^[Yy] ]]; then
-  echo -e "${CYAN}[13/15] Installing Homepage dashboard...${NC}"
+  echo -e "${CYAN}[12/14] Installing Homepage dashboard...${NC}"
   kubectl apply -f "${DEPLOYMENTS_DIR}/dashboard.yaml"
   wait_for_pods "dashboard" 120
   print_step "Dashboard installed"
 else
-  echo -e "${CYAN}[13/15] Skipping Homepage dashboard${NC}"
+  echo -e "${CYAN}[12/14] Skipping Homepage dashboard${NC}"
 fi
 
 # ============================================================================
