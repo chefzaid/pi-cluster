@@ -41,7 +41,7 @@ spec:
       terminationGracePeriodSeconds: 10
       containers:
       - name: guacamole
-        image: jwetzell/guacamole:latest
+        image: jwetzell/guacamole:1.6.0-20260804
         imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 8080

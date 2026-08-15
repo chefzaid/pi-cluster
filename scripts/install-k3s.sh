@@ -13,6 +13,7 @@
 
 set -e
 
+K3S_VERSION="${K3S_VERSION:-v1.36.3+k3s1}"
 NODE_ROLE="${1:-server}"
 SERVER_IP="${2:-}"
 TOKEN="${3:-}"
@@ -26,7 +27,7 @@ if [ "$NODE_ROLE" = "worker" ]; then
 
   echo "=== K3s Worker Node Installation ==="
   echo "Joining cluster at: ${SERVER_IP}"
-  curl -sfL https://get.k3s.io | K3S_URL="https://${SERVER_IP}:6443" K3S_TOKEN="${TOKEN}" sh -
+  curl -sfL https://get.k3s.io | INSTALL_K3S_VERSION="${K3S_VERSION}" K3S_URL="https://${SERVER_IP}:6443" K3S_TOKEN="${TOKEN}" sh -
   echo ""
   echo "=== K3s agent installed ==="
   exit 0
@@ -37,7 +38,7 @@ echo "=== K3s Control Plane Installation ==="
 echo "Node: $(hostname)"
 
 echo "[1/2] Installing K3s..."
-curl -sfL https://get.k3s.io | sh -
+curl -sfL https://get.k3s.io | INSTALL_K3S_VERSION="${K3S_VERSION}" sh -
 
 echo "[2/2] Waiting for K3s to be ready..."
 sleep 5

@@ -57,7 +57,7 @@ spec:
         # Fix bind address: AdGuard saves the pod IP in its config, which breaks on restart.
         # This ensures it always binds to 0.0.0.0 so it works with any pod IP.
         - name: fix-bind-addr
-          image: busybox:1.36
+          image: busybox:1.38.0
           imagePullPolicy: IfNotPresent
           command: ["sh", "-c"]
           args:
@@ -76,7 +76,7 @@ spec:
               mountPath: /opt/adguardhome/conf
       containers:
         - name: adguard-home
-          image: adguard/adguardhome:v0.107.55
+          image: adguard/adguardhome:v0.107.78
           ports:
             - name: dns-tcp
               containerPort: 53

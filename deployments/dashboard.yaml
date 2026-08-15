@@ -161,7 +161,7 @@ spec:
       terminationGracePeriodSeconds: 10
       initContainers:
         - name: init-config
-          image: busybox:latest
+          image: busybox:1.38.0
           imagePullPolicy: IfNotPresent
           command: ["sh", "-c", "cp /configmap/* /app-config/ && mkdir -p /app-config/logs"]
           volumeMounts:
@@ -171,7 +171,7 @@ spec:
               mountPath: /app-config
       containers:
         - name: dashboard
-          image: ghcr.io/gethomepage/homepage:latest
+          image: ghcr.io/gethomepage/homepage:v1.13.2
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 3000

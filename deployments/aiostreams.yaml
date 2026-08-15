@@ -52,7 +52,7 @@ spec:
       terminationGracePeriodSeconds: 15
       containers:
         - name: aiostreams
-          image: ghcr.io/viren070/aiostreams:latest
+          image: ghcr.io/viren070/aiostreams:v2.33.2
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
