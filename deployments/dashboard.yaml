@@ -171,7 +171,7 @@ spec:
               mountPath: /app-config
       containers:
         - name: dashboard
-          image: ghcr.io/gethomepage/homepage:v1.13.2
+          image: ghcr.io/gethomepage/homepage:v2.1.2
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 3000

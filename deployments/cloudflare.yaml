@@ -33,7 +33,7 @@ spec:
       terminationGracePeriodSeconds: 10
       containers:
       - name: cloudflared
-        image: cloudflare/cloudflared:2026.8.1
+        image: cloudflare/cloudflared:2026.8.2
         imagePullPolicy: IfNotPresent
         args:
         - tunnel

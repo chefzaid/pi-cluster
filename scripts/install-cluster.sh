@@ -501,21 +501,14 @@ if [[ "$INSTALL_OPENCLAW" =~ ^[Yy] ]]; then
   # Create the shared AI namespace if needed
   kubectl create namespace ai --dry-run=client -o yaml | kubectl apply -f -
 
-  GATEWAY_TOKEN=$(openssl rand -hex 32)
   kubectl create secret generic openclaw-env-secret \
     --namespace ai \
-    --from-literal=OPENCLAW_GATEWAY_TOKEN="$GATEWAY_TOKEN" \
     --from-literal=OPENROUTER_API_KEY="${OPENROUTER_API_KEY:-}" \
     --dry-run=client -o yaml | kubectl apply -f -
 
   kubectl apply -f "${DEPLOYMENTS_DIR}/openclaw.yaml"
   wait_for_pods "ai" 180
   print_step "OpenClaw installed"
-
-  echo ""
-  echo -e "${YELLOW}OpenClaw Gateway Token (save this):${NC}"
-  echo "  $GATEWAY_TOKEN"
-  echo ""
 else
   echo -e "${CYAN}[8/14] Skipping OpenClaw${NC}"
 fi

@@ -4,10 +4,9 @@
 # Web UI available at http://openclaw.local (LAN)
 # Docs: https://docs.openclaw.ai/
 #
-# Pre-requisite: create the secret with your API keys + gateway token:
+# Pre-requisite: create the secret with your OpenRouter API key:
 #
 #   kubectl create secret generic openclaw-env-secret -n ai \
-#     --from-literal=OPENCLAW_GATEWAY_TOKEN=<PICK_A_STRONG_TOKEN> \
 #     --from-literal=OPENROUTER_API_KEY=sk-or-v1-xxx
 #
 # Add more keys as needed (OPENAI_API_KEY, TELEGRAM_BOT_TOKEN, etc.)
@@ -37,16 +36,30 @@ metadata:
 data:
   openclaw.json: |
     {
+      "meta": {
+        "lastTouchedVersion": "2026.7.1",
+        "lastTouchedAt": "2026-08-21T22:42:00.710Z"
+      },
       "gateway": {
         "port": 18789,
         "mode": "local",
-        "bind": "lan",
-        "trustedProxies": ["0.0.0.0/0", "::/0"],
+        "bind": "loopback",
+        "auth": {
+          "mode": "none"
+        },
+        "trustedProxies": ["127.0.0.1/32", "::1/128"],
         "controlUi": {
           "enabled": true,
           "dangerouslyDisableDeviceAuth": true,
           "allowInsecureAuth": true,
-          "dangerouslyAllowHostHeaderOriginFallback": true
+          "allowedOrigins": [
+            "http://openclaw.local",
+            "http://pi-cluster.local:30789",
+            "http://192.168.1.191:30789",
+            "http://192.168.1.192:30789",
+            "http://192.168.1.193:30789",
+            "http://192.168.1.194:30789"
+          ]
         }
       },
       "channels": {
@@ -59,7 +72,7 @@ data:
         "defaults": {
           "workspace": "/home/node/.openclaw/workspace",
           "model": {
-            "primary": "openrouter/moonshotai/kimi-k2.5"
+            "primary": "openrouter/moonshotai/kimi-k3"
           }
         }
       }
@@ -81,6 +94,8 @@ spec:
     metadata:
       labels:
         app: openclaw
+      annotations:
+        checksum/openclaw-config: "3bc7fda65891742b0b3e0ddf0b1de9140a39dca12a2f094b3e9eaad6b14d4409"
     spec:
       automountServiceAccountToken: false
       securityContext:
@@ -133,9 +148,6 @@ spec:
             - name: http
               containerPort: 18789
               protocol: TCP
-          envFrom:
-            - secretRef:
-                name: openclaw-env-secret
           volumeMounts:
             - name: data
               mountPath: /home/node/.openclaw
@@ -154,6 +166,29 @@ spec:
           env:
             - name: NODE_OPTIONS
               value: "--max-old-space-size=1024"
+            - name: OPENROUTER_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: openclaw-env-secret
+                  key: OPENROUTER_API_KEY
+            - name: YOUTUBE_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: openclaw-env-secret
+                  key: YOUTUBE_CLIENT_ID
+                  optional: true
+            - name: YOUTUBE_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: openclaw-env-secret
+                  key: YOUTUBE_CLIENT_SECRET
+                  optional: true
+            - name: YOUTUBE_TRANSCRIPT_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: openclaw-env-secret
+                  key: YOUTUBE_TRANSCRIPT_API_KEY
+                  optional: true
           resources:
             requests:
               memory: "512Mi"
@@ -162,25 +197,74 @@ spec:
               memory: "2Gi"
               cpu: "1500m"
           readinessProbe:
-            tcpSocket:
-              port: 18789
+            httpGet:
+              path: /
+              port: 18790
             initialDelaySeconds: 30
             periodSeconds: 15
             timeoutSeconds: 5
             failureThreshold: 5
           livenessProbe:
-            tcpSocket:
-              port: 18789
+            httpGet:
+              path: /
+              port: 18790
             initialDelaySeconds: 60
             periodSeconds: 30
             timeoutSeconds: 5
             failureThreshold: 5
           startupProbe:
-            tcpSocket:
-              port: 18789
+            httpGet:
+              path: /
+              port: 18790
             initialDelaySeconds: 30
             periodSeconds: 10
             failureThreshold: 60
+        - name: lan-proxy
+          image: ghcr.io/openclaw/openclaw:2026.7.1-2
+          imagePullPolicy: IfNotPresent
+          command: ["node", "-e"]
+          args:
+            - |
+              const net = require("node:net");
+              const server = net.createServer((client) => {
+                const upstream = net.connect(18789, "127.0.0.1");
+                client.on("error", () => upstream.destroy());
+                upstream.on("error", () => client.destroy());
+                client.pipe(upstream);
+                upstream.pipe(client);
+              });
+              server.on("error", (error) => {
+                console.error(error);
+                process.exit(1);
+              });
+              server.listen(18790, "0.0.0.0", () => {
+                console.log("LAN proxy listening on 0.0.0.0:18790");
+              });
+          ports:
+            - name: proxy
+              containerPort: 18790
+              protocol: TCP
+          env:
+            - name: NODE_OPTIONS
+              value: "--max-old-space-size=64"
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+          securityContext:
+            runAsUser: 1000
+            runAsGroup: 1000
+            runAsNonRoot: true
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              memory: "32Mi"
+              cpu: "10m"
+            limits:
+              memory: "96Mi"
+              cpu: "100m"
       volumes:
         - name: data
           persistentVolumeClaim:
@@ -205,7 +289,7 @@ spec:
   ports:
     - protocol: TCP
       port: 80
-      targetPort: 18789
+      targetPort: proxy
       nodePort: 30789
 ---
 apiVersion: networking.k8s.io/v1
