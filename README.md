@@ -29,20 +29,25 @@ Setup for 4-nodes cluster of Raspberry Pi 4 to self-host a mini home lab and nec
 | `install-tailscale.sh`     | Install Tailscale and advertise home LAN route from Pi                     |
 | `openebs-install.sh`       | Install OpenEBS LocalPV provisioner                                        |
 
-### Deployments (`deployments/`)
+### Configuration (`config/`)
+
+| File | Purpose |
+|------|---------|
+| `k3s/config.yaml` | K3s server config: eviction thresholds, reserved resources, and max pods |
+
+### Kubernetes (`k8s/`)
 
 | File                       | Purpose                                                                    |
 |----------------------------|----------------------------------------------------------------------------|
-| `k3s-config.yaml`          | K3s server config: eviction thresholds, reserved resources, max-pods       |
-| `openebs-localpv.yaml`     | OpenEBS LocalPV StorageClass (openebs-hostpath, default for cluster)       |
-| `grafana-prometheus.yaml`  | Prometheus + Grafana + Node Exporter (CPU, RAM, disk, temperature)         |
-| `cloudflare.yaml`          | Cloudflared tunnel deployment (2 replicas with anti-affinity)              |
-| `guacamole.yaml`           | Guacamole all-in-one, OpenEBS PVC (`guacamole-pvc`, 1Gi)                   |
-| `openclaw.yaml`            | OpenClaw AI assistant gateway, OpenEBS PVC (`openclaw-pvc`, 2Gi)           |
-| `aiostreams.yaml`          | AIOStreams Stremio addon aggregator, OpenEBS PVC (`aiostreams-pvc`, 1Gi)   |
-| `adguard.yaml`             | AdGuard Home DNS, OpenEBS PVCs (`adguard-work-pvc` 1Gi, `conf` 256Mi)      |
-| `portainer.yaml`           | Portainer UI to manage Kubernetes + service account/cluster RBAC           |
-| `dashboard.yaml`           | Homepage dashboard (CPU, RAM, temperature, service status)                 |
+| `storage/openebs-localpv.yaml` | OpenEBS LocalPV StorageClass (`openebs-hostpath`) |
+| `platform/grafana-prometheus.yaml` | Prometheus, Grafana, and Node Exporter monitoring |
+| `platform/cloudflare.yaml` | Cloudflared tunnel deployment with two anti-affined replicas |
+| `platform/portainer.yaml` | Portainer Kubernetes management UI and cluster RBAC |
+| `platform/dashboard.yaml` | Homepage dashboard for resources and service status |
+| `apps/guacamole.yaml` | Guacamole all-in-one with a 1 GiB OpenEBS PVC |
+| `apps/openclaw.yaml` | OpenClaw AI assistant gateway with a 2 GiB OpenEBS PVC |
+| `apps/aiostreams.yaml` | AIOStreams Stremio addon aggregator with a 1 GiB OpenEBS PVC |
+| `apps/adguard.yaml` | AdGuard Home DNS with OpenEBS work and configuration PVCs |
 
 ### Ansible (`ansible/`)
 

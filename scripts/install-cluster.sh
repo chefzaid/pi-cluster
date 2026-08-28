@@ -20,7 +20,8 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-DEPLOYMENTS_DIR="$REPO_ROOT/deployments"
+K3S_CONFIG="$REPO_ROOT/config/k3s/config.yaml"
+K8S_DIR="$REPO_ROOT/k8s"
 
 # Colors for output
 RED='\033[0;31m'
@@ -189,23 +190,27 @@ for file in "${REQUIRED_SCRIPTS[@]}"; do
   fi
 done
 
-# Check required deployment files exist
-REQUIRED_DEPLOYMENTS=(
-  "k3s-config.yaml"
-  "openebs-localpv.yaml"
-  "grafana-prometheus.yaml"
-  "cloudflare.yaml"
-  "guacamole.yaml"
-  "openclaw.yaml"
-  "aiostreams.yaml"
-  "adguard.yaml"
-  "portainer.yaml"
-  "dashboard.yaml"
+# Check required configuration and Kubernetes manifests exist
+if [ ! -f "$K3S_CONFIG" ]; then
+  print_error "Missing required K3s configuration: config/k3s/config.yaml"
+  exit 1
+fi
+
+REQUIRED_K8S_MANIFESTS=(
+  "storage/openebs-localpv.yaml"
+  "platform/grafana-prometheus.yaml"
+  "platform/cloudflare.yaml"
+  "apps/guacamole.yaml"
+  "apps/openclaw.yaml"
+  "apps/aiostreams.yaml"
+  "apps/adguard.yaml"
+  "platform/portainer.yaml"
+  "platform/dashboard.yaml"
 )
 
-for file in "${REQUIRED_DEPLOYMENTS[@]}"; do
-  if [ ! -f "${DEPLOYMENTS_DIR}/${file}" ]; then
-    print_error "Missing required deployment: deployments/$file"
+for file in "${REQUIRED_K8S_MANIFESTS[@]}"; do
+  if [ ! -f "${K8S_DIR}/${file}" ]; then
+    print_error "Missing required Kubernetes file: k8s/$file"
     exit 1
   fi
 done
@@ -353,7 +358,7 @@ print_header "Phase 1: Core Infrastructure"
 # Step 1a: Apply K3s config BEFORE installation
 echo -e "${CYAN}[1a/14] Applying K3s configuration...${NC}"
 mkdir -p /etc/rancher/k3s
-cp "${DEPLOYMENTS_DIR}/k3s-config.yaml" /etc/rancher/k3s/config.yaml
+cp "$K3S_CONFIG" /etc/rancher/k3s/config.yaml
 print_step "K3s config applied"
 
 # Step 1b: Install K3s
@@ -435,7 +440,7 @@ print_header "Phase 3: Monitoring"
 # Step 4: Prometheus + Grafana
 if [[ "$INSTALL_MONITORING" =~ ^[Yy] ]]; then
   echo -e "${CYAN}[4/14] Installing Prometheus + Grafana...${NC}"
-  kubectl apply -f "${DEPLOYMENTS_DIR}/grafana-prometheus.yaml"
+  kubectl apply -f "${K8S_DIR}/platform/grafana-prometheus.yaml"
   wait_for_pods "monitoring" 300
   print_step "Prometheus + Grafana installed"
 else
@@ -459,7 +464,7 @@ if [[ "$INSTALL_CLOUDFLARE" =~ ^[Yy] ]] && [ -n "$CLOUDFLARE_TOKEN" ]; then
     --from-literal=TUNNEL_TOKEN="$CLOUDFLARE_TOKEN" \
     --dry-run=client -o yaml | kubectl apply -f -
   
-  kubectl apply -f "${DEPLOYMENTS_DIR}/cloudflare.yaml"
+  kubectl apply -f "${K8S_DIR}/platform/cloudflare.yaml"
   wait_for_pods "cloudflared" 120
   print_step "Cloudflare tunnel installed"
 else
@@ -487,7 +492,7 @@ print_header "Phase 5: Applications"
 # Step 7: Guacamole
 if [[ "$INSTALL_GUACAMOLE" =~ ^[Yy] ]]; then
   echo -e "${CYAN}[7/14] Installing Guacamole...${NC}"
-  kubectl apply -f "${DEPLOYMENTS_DIR}/guacamole.yaml"
+  kubectl apply -f "${K8S_DIR}/apps/guacamole.yaml"
   wait_for_pods "guacamole" 180
   print_step "Guacamole installed"
 else
@@ -506,7 +511,7 @@ if [[ "$INSTALL_OPENCLAW" =~ ^[Yy] ]]; then
     --from-literal=OPENROUTER_API_KEY="${OPENROUTER_API_KEY:-}" \
     --dry-run=client -o yaml | kubectl apply -f -
 
-  kubectl apply -f "${DEPLOYMENTS_DIR}/openclaw.yaml"
+  kubectl apply -f "${K8S_DIR}/apps/openclaw.yaml"
   wait_for_pods "ai" 180
   print_step "OpenClaw installed"
 else
@@ -533,7 +538,7 @@ if [[ "$INSTALL_AIOSTREAMS" =~ ^[Yy] ]]; then
     --from-literal=DATABASE_URI="sqlite://./data/db.sqlite" \
     --dry-run=client -o yaml | kubectl apply -f -
 
-  kubectl apply -f "${DEPLOYMENTS_DIR}/aiostreams.yaml"
+  kubectl apply -f "${K8S_DIR}/apps/aiostreams.yaml"
   wait_for_pods "media" 180
   print_step "AIOStreams installed"
 
@@ -547,7 +552,7 @@ fi
 # Step 10: AdGuard Home
 if [[ "$INSTALL_ADGUARD" =~ ^[Yy] ]]; then
   echo -e "${CYAN}[10/14] Installing AdGuard Home...${NC}"
-  kubectl apply -f "${DEPLOYMENTS_DIR}/adguard.yaml"
+  kubectl apply -f "${K8S_DIR}/apps/adguard.yaml"
   wait_for_pods "adguard" 180
   print_step "AdGuard Home installed"
 else
@@ -557,7 +562,7 @@ fi
 # Step 11: Portainer
 if [[ "$INSTALL_PORTAINER" =~ ^[Yy] ]]; then
   echo -e "${CYAN}[11/14] Installing Portainer...${NC}"
-  kubectl apply -f "${DEPLOYMENTS_DIR}/portainer.yaml"
+  kubectl apply -f "${K8S_DIR}/platform/portainer.yaml"
   wait_for_pods "portainer" 180
   print_step "Portainer installed"
 else
@@ -567,7 +572,7 @@ fi
 # Step 12: Dashboard
 if [[ "$INSTALL_DASHBOARD" =~ ^[Yy] ]]; then
   echo -e "${CYAN}[12/14] Installing Homepage dashboard...${NC}"
-  kubectl apply -f "${DEPLOYMENTS_DIR}/dashboard.yaml"
+  kubectl apply -f "${K8S_DIR}/platform/dashboard.yaml"
   wait_for_pods "dashboard" 120
   print_step "Dashboard installed"
 else

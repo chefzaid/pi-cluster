@@ -4,7 +4,7 @@
   become: true
   gather_facts: false
   vars:
-    deployments_dir: "{{ playbook_dir }}/../deployments"
+    k8s_dir: "{{ playbook_dir }}/../k8s"
     kubeconfig: /etc/rancher/k3s/k3s.yaml
 
   tasks:
@@ -86,7 +86,7 @@
 
     - name: Copy AIOStreams manifest to control plane
       ansible.builtin.copy:
-        src: "{{ deployments_dir }}/aiostreams.yaml"
+        src: "{{ k8s_dir }}/apps/aiostreams.yaml"
         dest: /tmp/aiostreams.yaml
         mode: "0644"
       when: install_aiostreams

@@ -1,6 +1,6 @@
 # OpenEBS LocalPV Configuration for Raspberry Pi 4 Cluster
 # Apply after OpenEBS is installed:
-#   kubectl apply -f openebs-localpv.yaml
+#   kubectl apply -f k8s/storage/openebs-localpv.yaml
 #
 # Contains:
 # - Verified default openebs-hostpath StorageClass (set as cluster default)

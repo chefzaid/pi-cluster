@@ -76,10 +76,10 @@ echo "[3/3] Verifying StorageClasses..."
 kubectl get storageclass
 
 # Step 3: Apply optional custom StorageClass config (basePath override, etc.)
-if [ -f "${REPO_ROOT}/deployments/openebs-localpv.yaml" ]; then
+if [ -f "${REPO_ROOT}/k8s/storage/openebs-localpv.yaml" ]; then
   echo ""
   echo "Applying openebs-localpv.yaml (custom StorageClass settings)..."
-  kubectl apply -f "${REPO_ROOT}/deployments/openebs-localpv.yaml"
+  kubectl apply -f "${REPO_ROOT}/k8s/storage/openebs-localpv.yaml"
 else
   echo "  (openebs-localpv.yaml not found, using defaults)"
 fi
