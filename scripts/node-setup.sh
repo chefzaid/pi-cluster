@@ -5,6 +5,7 @@
 #   1. Flannel subnet.env - ensures networking works after reboot (all nodes)
 #   2. Reboot cleanup service - auto-cleans stale pods on boot (control plane)
 #   3. UFW firewall - secures node while allowing K3s traffic (all nodes)
+#   4. Journald size cap - limits logs to 200 MB to spare the SD card (all nodes)
 #
 # Usage: Run on EACH node with the correct subnet:
 #   sudo bash node-setup.sh <SUBNET>             # worker nodes
@@ -249,7 +250,6 @@ if command -v ufw &>/dev/null; then
   ufw allow from $LAN_CIDR to any port 6443 proto tcp comment 'K3s API' >/dev/null
   ufw allow from $LAN_CIDR to any port 8472 proto udp comment 'Flannel VXLAN' >/dev/null
   ufw allow from $LAN_CIDR to any port 10250 proto tcp comment 'Kubelet' >/dev/null
-  ufw allow from $LAN_CIDR to any port 9100 proto tcp comment 'Node Exporter' >/dev/null
   ufw allow from $LAN_CIDR to any port 2379:2380 proto tcp comment 'etcd' >/dev/null
   ufw allow from $CLUSTER_CIDR comment 'K3s Pod Network' >/dev/null
   ufw allow from $SERVICE_CIDR comment 'K3s Service Network' >/dev/null
@@ -258,13 +258,11 @@ if command -v ufw &>/dev/null; then
   ufw route allow to $CLUSTER_CIDR >/dev/null
   ufw route allow to $SERVICE_CIDR >/dev/null
 
-  echo "  Allowing NodePorts, HTTP/HTTPS, VNC, DNS..."
+  echo "  Allowing NodePorts, HTTP/HTTPS, VNC..."
   ufw allow from $LAN_CIDR to any port 30000:32767 proto tcp comment 'K3s NodePorts' >/dev/null
   ufw allow from $LAN_CIDR to any port 80 proto tcp comment 'HTTP' >/dev/null
   ufw allow from $LAN_CIDR to any port 443 proto tcp comment 'HTTPS' >/dev/null
   ufw allow from $LAN_CIDR to any port 5901 proto tcp comment 'VNC' >/dev/null
-  ufw allow from $LAN_CIDR to any port 53 proto tcp comment 'DNS TCP' >/dev/null
-  ufw allow from $LAN_CIDR to any port 53 proto udp comment 'DNS UDP' >/dev/null
   ufw allow proto icmp comment 'ICMP ping' >/dev/null
 
   ufw --force enable >/dev/null
@@ -274,12 +272,27 @@ else
 fi
 echo ""
 
+echo "=== Capping systemd journal size ==="
+# Default journald keeps up to 10% of the disk (several GB on a 64 GB card) and
+# the constant writes wear SD cards; 200 MB is plenty for troubleshooting.
+mkdir -p /etc/systemd/journald.conf.d
+cat > /etc/systemd/journald.conf.d/pi-cluster.conf <<'JOURNALEOF'
+[Journal]
+SystemMaxUse=200M
+SystemMaxFileSize=50M
+JOURNALEOF
+systemctl restart systemd-journald
+journalctl --vacuum-size=200M >/dev/null 2>&1 || true
+echo "  Journal capped at 200M"
+echo ""
+
 echo "=== Node setup complete ==="
 echo ""
 echo "Services installed:"
 echo "  - flannel-subnet-fix.service (ensures /run/flannel/subnet.env on boot)"
 [ "$IS_SERVER" = true ] && echo "  - k3s-reboot-cleanup.service (cleans Unknown pods after reboot)"
 echo "  - UFW firewall (K3s-compatible rules)"
+echo "  - Journald size cap (200M)"
 echo ""
 echo "Run order for each node:"
 echo "  pi-node-01: sudo bash '02 - node-setup.sh' 10.42.0.1/24 --server"

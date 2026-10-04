@@ -1,0 +1,137 @@
+# changedetection.io - website change detection, price/restock and alerting
+# Web UI available at http://pi-cluster.internal:30500 (LAN) or http://changedetection.local
+#
+# Plain HTTP fetching only: the optional headless Chrome ("sockpuppetbrowser")
+# is left out because it is too heavy for a Pi. Pages that need JavaScript to
+# render will not work; most sites and APIs do.
+#
+# No password by default: set one in Settings -> General before exposing it
+# through Cloudflare.
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: changedetection
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: changedetection-pvc
+  namespace: changedetection
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: openebs-hostpath
+  resources:
+    requests:
+      storage: 2Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: changedetection
+  namespace: changedetection
+spec:
+  replicas: 1
+  revisionHistoryLimit: 3
+  selector:
+    matchLabels:
+      app: changedetection
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: changedetection
+    spec:
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: changedetection
+          image: ghcr.io/dgtlmoon/changedetection.io:0.60.8
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 5000
+              protocol: TCP
+          env:
+            # Used for links in notifications
+            - name: BASE_URL
+              value: http://pi-cluster.internal:30500
+            # Default is 10 parallel fetchers; 4 is plenty for a Pi
+            - name: FETCH_WORKERS
+              value: "4"
+            - name: HIDE_REFERER
+              value: "true"
+            - name: LOGGER_LEVEL
+              value: INFO
+            - name: TZ
+              value: Europe/Paris
+          volumeMounts:
+            - name: data
+              mountPath: /datastore
+          resources:
+            requests:
+              memory: "192Mi"
+              cpu: "25m"
+            limits:
+              memory: "512Mi"
+              cpu: "1000m"
+          startupProbe:
+            httpGet:
+              path: /
+              port: 5000
+            periodSeconds: 5
+            failureThreshold: 60
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 5000
+            periodSeconds: 15
+            timeoutSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 5000
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 5
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: changedetection-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: changedetection-service
+  namespace: changedetection
+spec:
+  type: NodePort
+  selector:
+    app: changedetection
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 5000
+      nodePort: 30500
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: changedetection-ingress
+  namespace: changedetection
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: web
+spec:
+  rules:
+    - host: changedetection.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: changedetection-service
+                port:
+                  number: 80

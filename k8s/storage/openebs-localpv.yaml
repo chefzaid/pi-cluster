@@ -3,16 +3,16 @@
 #   kubectl apply -f k8s/storage/openebs-localpv.yaml
 #
 # Contains:
-# - Verified default openebs-hostpath StorageClass (set as cluster default)
+# - Explicit openebs-hostpath StorageClass (not the cluster default; K3s local-path is)
 # - No replicas, no network overhead - data lives locally on each node
 #
 # Data location on each node: /var/openebs/local/<pvc-uid>/
 # the openebs-operator-lite installs this StorageClass automatically,
-# this file just ensures settings are explicit and it is marked as default.
+# this file just ensures its settings are explicit.
 
 ---
 # ============================================================================
-# Custom StorageClass: openebs-hostpath (explicit basePath, marked as default)
+# Custom StorageClass: openebs-hostpath (explicit basePath, not default)
 # ============================================================================
 # OpenEBS LocalPV Hostpath - stores data in a host directory.
 # WaitForFirstConsumer ensures the PV is provisioned on the same node
@@ -24,6 +24,7 @@ metadata:
   annotations:
     # NOT marked as cluster default — K3s already has local-path as default.
     # To use openebs-hostpath explicitly, set storageClassName: openebs-hostpath in PVCs.
+    storageclass.kubernetes.io/is-default-class: "false"
     openebs.io/cas-type: local
     cas.openebs.io/config: |
       - name: StorageType

@@ -24,10 +24,13 @@ Setup for 4-nodes cluster of Raspberry Pi 4 to self-host a mini home lab and nec
 | File                       | Purpose                                                                    |
 |----------------------------|----------------------------------------------------------------------------|
 | `install-k3s.sh`           | Install K3s control plane or join as worker node                           |
-| `node-setup.sh`            | Flannel fix + reboot cleanup service + UFW firewall                        |
+| `node-setup.sh`            | Flannel fix + reboot cleanup service + UFW firewall + journald size cap    |
 | `install-vnc-desktop.sh`   | Install XFCE4 + TigerVNC + native Firefox DEB (for Guacamole)              |
 | `install-tailscale.sh`     | Install Tailscale and advertise home LAN route from Pi                     |
 | `openebs-install.sh`       | Install OpenEBS LocalPV provisioner                                        |
+| `beszel-bootstrap.sh`      | Deploy Beszel hub, create admin, and register per-node agents              |
+| `beszel-set-password.sh`   | Change the Beszel admin password (user, database admin, and secret)        |
+| `transmute-bootstrap.sh`   | Deploy Transmute, pin its signing key, and create the admin account        |
 
 ### Configuration (`config/`)
 
@@ -40,14 +43,18 @@ Setup for 4-nodes cluster of Raspberry Pi 4 to self-host a mini home lab and nec
 | File                       | Purpose                                                                    |
 |----------------------------|----------------------------------------------------------------------------|
 | `storage/openebs-localpv.yaml` | OpenEBS LocalPV StorageClass (`openebs-hostpath`) |
-| `platform/grafana-prometheus.yaml` | Prometheus, Grafana, and Node Exporter monitoring |
+| `platform/beszel.yaml` | Beszel monitoring hub (1 GiB OpenEBS PVC) and per-node agent DaemonSet |
 | `platform/cloudflare.yaml` | Cloudflared tunnel deployment with two anti-affined replicas |
 | `platform/portainer.yaml` | Portainer Kubernetes management UI and cluster RBAC |
 | `platform/dashboard.yaml` | Homepage dashboard for resources and service status |
 | `apps/guacamole.yaml` | Guacamole all-in-one with a 1 GiB OpenEBS PVC |
 | `apps/openclaw.yaml` | OpenClaw AI assistant gateway with a 2 GiB OpenEBS PVC |
 | `apps/aiostreams.yaml` | AIOStreams Stremio addon aggregator with a 1 GiB OpenEBS PVC |
-| `apps/adguard.yaml` | AdGuard Home DNS with OpenEBS work and configuration PVCs |
+| `apps/musicgrabber.yaml` | MusicGrabber music downloader with 1 GiB data and 20 GiB music OpenEBS PVCs |
+| `apps/stirling-pdf.yaml` | Stirling PDF toolbox (OCR, LibreOffice conversions) with a 1 GiB OpenEBS PVC |
+| `apps/changedetection.yaml` | changedetection.io website change monitoring with a 2 GiB OpenEBS PVC |
+| `apps/transmute.yaml` | Transmute file converter and compressor (guest access) with a 5 GiB OpenEBS PVC |
+| `apps/cyberchef.yaml` | CyberChef data toolkit (static, stateless) |
 
 ### Ansible (`ansible/`)
 
@@ -58,7 +65,7 @@ Setup for 4-nodes cluster of Raspberry Pi 4 to self-host a mini home lab and nec
 
 ## Local Network Access
 
-All services are accessible on your local network via `pi-cluster.local` domain (add the entry to your hosts file).
+All services are accessible on your local network via `pi-cluster.internal` domain (add the entry to your hosts file).
 
 ---
 
@@ -194,6 +201,66 @@ Traffic path will be: `DS (Tailnet) -> Pi subnet router -> Home LAN host`.
 
 ---
 
+## Setting up Beszel
+
+[Beszel](https://beszel.dev) monitors every node: CPU, memory, load, temperatures, SD card usage and I/O, network traffic, and systemd services (`k3s`, `k3s-agent`, `tailscaled`, `ssh`, `ufw`, `vncserver@1`, ...). It replaces the old Grafana + Prometheus stack and uses a fraction of the memory.
+
+The installer asks for an admin email and password (leave the password empty to generate one). It then runs `scripts/beszel-bootstrap.sh`, which you can also run on its own:
+
+```bash
+BESZEL_ADMIN_EMAIL=you@example.com bash scripts/beszel-bootstrap.sh
+```
+
+The script:
+
+1. Stores the admin credentials in the `monitoring/beszel-hub-env` secret; the hub creates the first user from it
+2. Deploys the hub (`k8s/platform/beszel.yaml`) and waits for it
+3. Reads the hub's public key, registers a permanent universal token, and stores both in `monitoring/beszel-agent-secret`
+4. Starts the agent DaemonSet; each node registers itself under its node name
+
+It is safe to re-run: existing credentials and the agent token are reused.
+
+Open <http://pi-cluster.internal:30090> (or `http://beszel.local` with a hosts-file entry).
+
+### Beszel login and password
+
+There is no default login: the bootstrap creates the account from the installer's email and password. The same credentials are used for two accounts, the Beszel user and the PocketBase database admin at <http://pi-cluster.internal:30090/_/>.
+
+**Get** the current login:
+
+```bash
+kubectl get secret -n monitoring beszel-hub-env -o jsonpath='{.data.USER_EMAIL}' | base64 -d; echo
+kubectl get secret -n monitoring beszel-hub-env -o jsonpath='{.data.USER_PASSWORD}' | base64 -d; echo
+```
+
+**Set** a new password (min 8 characters):
+
+```bash
+bash scripts/beszel-set-password.sh                      # prompts for it
+NEW_PASSWORD='new-password' bash scripts/beszel-set-password.sh
+```
+
+The script updates the Beszel user, the database admin and the `beszel-hub-env` secret in one go. Beszel's own UI does not let users change their own password; if you change it by hand in the database admin (`/_/` → **users** → your record), also update the secret, or `beszel-bootstrap.sh` will fail its next run:
+
+```bash
+kubectl -n monitoring patch secret beszel-hub-env --type=merge -p '{"stringData":{"USER_PASSWORD":"new-password"}}'
+```
+
+Agents are not affected by password changes: they connect with their own token.
+
+How the agents are set up:
+
+- They use the host network, so they report the real `eth0`, `wlan0`, `tailscale0` and CNI interfaces
+- They connect out to the hub over WebSocket (`DISABLE_SSH=true`), so no inbound port is opened on the nodes
+- Root disk stats come from the SD card (`FILESYSTEM=mmcblk0p2`)
+- Each node's fingerprint is kept in `/var/lib/beszel-agent`, so a restarted agent reconnects as the same system instead of creating a duplicate
+- They read systemd state through the host D-Bus socket. This needs `appArmorProfile: Unconfined`, because the default containerd AppArmor profile blocks D-Bus
+- Per-container stats are not available: Beszel reads them from a Docker or Podman socket, and k3s uses containerd
+
+Alerts (CPU, memory, disk, temperature, node down) and notifications (email, ntfy, Discord, ...) are configured per system in the Beszel UI.
+
+---
+
 ## Setting up Guacamole
 
 Guacamole provides browser-based access to your machines via RDP, VNC, and SSH.
@@ -291,7 +358,7 @@ OpenClaw is preconfigured to use OpenRouter with `openrouter/moonshotai/kimi-k3`
 
 ### First-time setup
 
-Open <http://pi-cluster.local:30789> from the cluster dashboard. No OpenClaw token, password, onboarding wizard, or model selection is required.
+Open <http://pi-cluster.internal:30789> from the cluster dashboard. No OpenClaw token, password, onboarding wizard, or model selection is required.
 
 The gateway intentionally uses no application-level authentication so it is ready on first use. Keep this NodePort and the `openclaw.local` ingress on a trusted LAN; do not expose them directly to the public internet without adding an authenticated reverse proxy.
 
@@ -325,7 +392,7 @@ https://aiostreams.swirlit.dev/stremio/configure
 Local NodePort access is also available:
 
 ```bash
-http://pi-cluster.local:30300/stremio/configure
+http://pi-cluster.internal:30300/stremio/configure
 ```
 
 If you use the ingress hostname directly, add `aiostreams.local` to your hosts file and open:
@@ -346,11 +413,124 @@ See the [AIOStreams deployment docs](https://github.com/Viren070/AIOStreams/wiki
 
 ---
 
+## Setting up MusicGrabber
+
+MusicGrabber searches YouTube, SoundCloud, Monochrome and other sources and downloads tracks, playlists and albums into a tagged music library.
+
+MusicGrabber is installed only if you answer `y` to the installer prompt. To deploy it on an existing cluster:
+
+```bash
+kubectl apply -f k8s/apps/musicgrabber.yaml
+```
+
+Open <http://pi-cluster.internal:30382> (or `http://musicgrabber.local` with a hosts-file entry). Downloads land on the `musicgrabber-music-pvc` volume (mounted at `/music`); the job database and settings live on `musicgrabber-data-pvc` (`/data`).
+
+Everything else (Navidrome/Jellyfin refresh, notifications, search sources, cookies) is configured in the **Settings** tab. The app has no login by default, so keep it on the LAN, or set an API key / admin user under **Settings** → **Security** before adding a Cloudflare route.
+
+See the [MusicGrabber README](https://gitlab.com/g33kphr33k/musicgrabber) for details.
+
+---
+
+## Setting up Stirling PDF
+
+Stirling PDF is a browser-based PDF toolbox: merge, split, compress, convert to and from Office formats, OCR, sign, redact and more. Files are processed on the cluster and never leave your network.
+
+Stirling PDF is installed only if you answer `y` to the installer prompt. To deploy it on an existing cluster:
+
+```bash
+kubectl apply -f k8s/apps/stirling-pdf.yaml
+```
+
+Open <http://pi-cluster.internal:30808> (or `http://stirling-pdf.local` with a hosts-file entry). The first start takes a couple of minutes on a Pi while the JVM warms up.
+
+- Settings and the internal database live on `stirling-pdf-pvc`, mounted at `/configs`. Edit `/configs/settings.yml` and restart the pod to change advanced options.
+- The image ships OCR models for English, French, German, Portuguese and Simplified Chinese. To add another language, copy its `*.traineddata` file from [tessdata](https://github.com/tesseract-ocr/tessdata) into the PVC's `tessdata/` folder and restart:
+
+  ```bash
+  POD=$(kubectl get pod -n stirling-pdf -l app=stirling-pdf -o name)
+  kubectl cp ara.traineddata stirling-pdf/${POD#pod/}:/usr/share/tessdata/
+  kubectl rollout restart deploy/stirling-pdf -n stirling-pdf
+  ```
+
+- Login is disabled and uploads are capped at 300 MB. Keep it on the LAN, or set `SECURITY_ENABLELOGIN=true` in the manifest before adding a Cloudflare route.
+- Office conversions run one LibreOffice session at a time to stay within the 2 GiB memory limit.
+
+See the [Stirling PDF docs](https://docs.stirlingpdf.com) for details.
+
+---
+
+## Setting up changedetection.io
+
+[changedetection.io](https://changedetection.io) watches web pages for changes (text, prices, restocks, JSON APIs) and sends alerts through Apprise (email, ntfy, Discord, Telegram, ...).
+
+It is installed only if you answer `y` to the installer prompt. To deploy it on an existing cluster:
+
+```bash
+kubectl apply -f k8s/apps/changedetection.yaml
+```
+
+Open <http://pi-cluster.internal:30500> (or `http://changedetection.local` with a hosts-file entry). Watches, history and settings live on `changedetection-pvc` (`/datastore`).
+
+- It fetches pages over plain HTTP with 4 parallel workers. The optional headless Chrome is not deployed because it is too heavy for a Pi, so pages that only render with JavaScript will not work
+- Notification links point at `BASE_URL` (`http://pi-cluster.internal:30500`)
+- There is no password by default. Set one under **Settings** → **General** before adding a Cloudflare route
+
+---
+
+## Setting up Transmute
+
+[Transmute](https://transmute.sh) converts and compresses files in the browser: images, video, audio, documents, spreadsheets, ebooks, diagrams and more (ffmpeg, LibreOffice, Calibre, Inkscape and friends under the hood).
+
+It is installed only if you answer `y` to the installer prompt; the installer runs `scripts/transmute-bootstrap.sh`, which you can also run on its own:
+
+```bash
+TRANSMUTE_ADMIN_PASSWORD='at-least-8-chars' bash scripts/transmute-bootstrap.sh
+```
+
+Open <http://pi-cluster.internal:30313> (or `http://transmute.local` with a hosts-file entry) and click **Use as guest**: no account is needed and the guest session cookie lasts 30 days.
+
+Transmute cannot run with no accounts at all. Guest access (`ALLOW_UNAUTHENTICATED=true`) only becomes available once an admin exists, so the bootstrap script:
+
+1. Creates the `transmute/transmute-env` secret with a fixed `AUTH_SECRET_KEY` and the admin credentials (username `admin`, password from `TRANSMUTE_ADMIN_PASSWORD` or generated)
+2. Deploys Transmute and creates the admin account, so no visitor can claim it
+
+The fixed signing key matters: without it Transmute generates a new one on every start, which signs everyone out and orphans guest sessions. The admin account is only needed for settings and user management. To read its password:
+
+```bash
+kubectl get secret -n transmute transmute-env -o jsonpath='{.data.ADMIN_PASSWORD}' | base64 -d; echo
+```
+
+To change it, sign in as `admin` → **Account**, then keep the secret in sync:
+
+```bash
+kubectl -n transmute patch secret transmute-env --type=merge -p '{"stringData":{"ADMIN_PASSWORD":"new-password"}}'
+```
+
+- Files live on `transmute-pvc` (`/app/data`) and are cleaned up automatically by Transmute
+- Conversions and compressions run 2 at a time each (`CONVERSION_WORKER_CONCURRENCY` / `COMPRESSION_WORKER_CONCURRENCY`, default 5) to stay within the 1.5 GiB memory limit; video and office conversions are slow on a Pi
+- It runs as uid 1000 with `HOME` on an `emptyDir`: the image has no writable home for non-root users, and its bundled draw.io hangs at startup without one
+
+---
+
+## Setting up CyberChef
+
+[CyberChef](https://github.com/gchq/CyberChef) is GCHQ's "Cyber Swiss Army Knife": chain operations to encode/decode (Base64, hex, URL), hash, encrypt/decrypt, decompress, parse timestamps, extract data and much more.
+
+It is installed only if you answer `y` to the installer prompt. To deploy it on an existing cluster:
+
+```bash
+kubectl apply -f k8s/apps/cyberchef.yaml
+```
+
+Open <http://pi-cluster.internal:30888> (or `http://cyberchef.local` with a hosts-file entry). It is a static page served by unprivileged nginx: every operation runs in your browser, nothing is sent to or stored on the cluster, and it needs no volume.
+
+---
+
 ## Mandatory post-deployment checklist
 
 1. **VNC password:** Change from default `raspberry` - run `vncpasswd` on the Pi. You may need to restart the server.
 2. **Guacamole:** Delete the default `guacadmin` account immediately
-3. **Grafana:** Change the default `admin`/`admin` password on first login
+3. **Beszel / Transmute:** If the installer generated an admin password, change it (`scripts/beszel-set-password.sh`; Transmute **Account** page)
 4. **AIOStreams:** Use a stable `BASE_URL`; changing it later can break generated install URLs
 5. **Cloudflare Access:** Set up email OTP, at least for `remote` and `aiostreams` subdomains
 6. **Tailscale:** Approve the advertised route in Tailscale admin so your DS can reach the home LAN

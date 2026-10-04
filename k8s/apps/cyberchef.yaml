@@ -1,0 +1,96 @@
+# CyberChef - "Cyber Swiss Army Knife" for encoding, decoding, hashing,
+# encryption, compression and data analysis
+# Web UI available at http://pi-cluster.internal:30888 (LAN) or http://cyberchef.local
+#
+# Static web app served by unprivileged nginx: all processing happens in the
+# browser, nothing is stored on the cluster, so no PVC is needed.
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: cyberchef
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cyberchef
+  namespace: cyberchef
+spec:
+  replicas: 1
+  revisionHistoryLimit: 3
+  selector:
+    matchLabels:
+      app: cyberchef
+  template:
+    metadata:
+      labels:
+        app: cyberchef
+    spec:
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 10
+      containers:
+        - name: cyberchef
+          image: ghcr.io/gchq/cyberchef:11.5.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 101
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              memory: "16Mi"
+              cpu: "10m"
+            limits:
+              memory: "64Mi"
+              cpu: "250m"
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 8080
+            periodSeconds: 15
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 8080
+            periodSeconds: 30
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: cyberchef-service
+  namespace: cyberchef
+spec:
+  type: NodePort
+  selector:
+    app: cyberchef
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 8080
+      nodePort: 30888
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: cyberchef-ingress
+  namespace: cyberchef
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: web
+spec:
+  rules:
+    - host: cyberchef.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: cyberchef-service
+                port:
+                  number: 80

@@ -181,6 +181,8 @@ REQUIRED_SCRIPTS=(
   "install-vnc-desktop.sh"
   "install-tailscale.sh"
   "openebs-install.sh"
+  "beszel-bootstrap.sh"
+  "transmute-bootstrap.sh"
 )
 
 for file in "${REQUIRED_SCRIPTS[@]}"; do
@@ -198,12 +200,16 @@ fi
 
 REQUIRED_K8S_MANIFESTS=(
   "storage/openebs-localpv.yaml"
-  "platform/grafana-prometheus.yaml"
+  "platform/beszel.yaml"
   "platform/cloudflare.yaml"
   "apps/guacamole.yaml"
   "apps/openclaw.yaml"
   "apps/aiostreams.yaml"
-  "apps/adguard.yaml"
+  "apps/musicgrabber.yaml"
+  "apps/stirling-pdf.yaml"
+  "apps/changedetection.yaml"
+  "apps/transmute.yaml"
+  "apps/cyberchef.yaml"
   "platform/portainer.yaml"
   "platform/dashboard.yaml"
 )
@@ -301,14 +307,48 @@ if [[ "$INSTALL_AIOSTREAMS" =~ ^[Yy] ]]; then
 fi
 echo ""
 
-# AdGuard Home
-echo -e "${CYAN}AdGuard Home (DNS Ad Blocker)${NC}"
-prompt_input INSTALL_ADGUARD "Install AdGuard Home? (y/n)" "y"
+# MusicGrabber
+echo -e "${CYAN}MusicGrabber (Music Downloader)${NC}"
+prompt_input INSTALL_MUSICGRABBER "Install MusicGrabber? (y/n)" "n"
 echo ""
 
-# Grafana + Prometheus
-echo -e "${CYAN}Grafana + Prometheus (Monitoring)${NC}"
-prompt_input INSTALL_MONITORING "Install Grafana + Prometheus? (y/n)" "y"
+# Stirling PDF
+echo -e "${CYAN}Stirling PDF (PDF Toolbox)${NC}"
+prompt_input INSTALL_STIRLING_PDF "Install Stirling PDF? (y/n)" "n"
+echo ""
+
+# changedetection.io
+echo -e "${CYAN}changedetection.io (Website Change Detection)${NC}"
+prompt_input INSTALL_CHANGEDETECTION "Install changedetection.io? (y/n)" "n"
+echo ""
+
+# Transmute
+echo -e "${CYAN}Transmute (File Converter)${NC}"
+prompt_input INSTALL_TRANSMUTE "Install Transmute? (y/n)" "n"
+if [[ "$INSTALL_TRANSMUTE" =~ ^[Yy] ]]; then
+  echo "Day-to-day use is one-click guest access; the admin account is only for settings."
+  prompt_input TRANSMUTE_ADMIN_PASSWORD "Transmute admin password, min 8 chars (leave empty to generate)" "" true
+fi
+echo ""
+
+# CyberChef
+echo -e "${CYAN}CyberChef (Data Toolkit)${NC}"
+prompt_input INSTALL_CYBERCHEF "Install CyberChef? (y/n)" "n"
+echo ""
+
+# Beszel
+echo -e "${CYAN}Beszel (Node Monitoring)${NC}"
+prompt_input INSTALL_BESZEL "Install Beszel? (y/n)" "y"
+if [[ "$INSTALL_BESZEL" =~ ^[Yy] ]]; then
+  while true; do
+    prompt_input BESZEL_ADMIN_EMAIL "Beszel admin email" ""
+    if [ -n "$BESZEL_ADMIN_EMAIL" ]; then
+      break
+    fi
+    print_warning "Beszel admin email cannot be empty"
+  done
+  prompt_input BESZEL_ADMIN_PASSWORD "Beszel admin password (leave empty to generate)" "" true
+fi
 echo ""
 
 # Portainer
@@ -333,8 +373,12 @@ echo "  - OpenEBS LocalPV (local storage)"
 [[ "$INSTALL_GUACAMOLE" =~ ^[Yy] ]] && echo "  - Guacamole (remote desktop gateway)"
 [[ "$INSTALL_OPENCLAW" =~ ^[Yy] ]] && echo "  - OpenClaw (AI assistant gateway)"
 [[ "$INSTALL_AIOSTREAMS" =~ ^[Yy] ]] && echo "  - AIOStreams (Stremio addon aggregator)"
-[[ "$INSTALL_ADGUARD" =~ ^[Yy] ]] && echo "  - AdGuard Home (DNS ad blocker)"
-[[ "$INSTALL_MONITORING" =~ ^[Yy] ]] && echo "  - Prometheus + Grafana (monitoring)"
+[[ "$INSTALL_MUSICGRABBER" =~ ^[Yy] ]] && echo "  - MusicGrabber (music downloader)"
+[[ "$INSTALL_STIRLING_PDF" =~ ^[Yy] ]] && echo "  - Stirling PDF (PDF toolbox)"
+[[ "$INSTALL_CHANGEDETECTION" =~ ^[Yy] ]] && echo "  - changedetection.io (website change monitoring)"
+[[ "$INSTALL_TRANSMUTE" =~ ^[Yy] ]] && echo "  - Transmute (file converter)"
+[[ "$INSTALL_CYBERCHEF" =~ ^[Yy] ]] && echo "  - CyberChef (encode/decode/crypto toolkit)"
+[[ "$INSTALL_BESZEL" =~ ^[Yy] ]] && echo "  - Beszel (node monitoring)"
 [[ "$INSTALL_PORTAINER" =~ ^[Yy] ]] && echo "  - Portainer (container management)"
 [[ "$INSTALL_DASHBOARD" =~ ^[Yy] ]] && echo "  - Homepage dashboard"
 
@@ -356,18 +400,18 @@ fi
 print_header "Phase 1: Core Infrastructure"
 
 # Step 1a: Apply K3s config BEFORE installation
-echo -e "${CYAN}[1a/14] Applying K3s configuration...${NC}"
+echo -e "${CYAN}[1a/16] Applying K3s configuration...${NC}"
 mkdir -p /etc/rancher/k3s
 cp "$K3S_CONFIG" /etc/rancher/k3s/config.yaml
 print_step "K3s config applied"
 
 # Step 1b: Install K3s
-echo -e "${CYAN}[1b/14] Installing K3s...${NC}"
+echo -e "${CYAN}[1b/16] Installing K3s...${NC}"
 bash "${SCRIPTS_DIR}/install-k3s.sh"
 print_step "K3s installed"
 
 # Step 1c: Node setup on control plane
-echo -e "${CYAN}[1c/14] Running node setup on control plane...${NC}"
+echo -e "${CYAN}[1c/16] Running node setup on control plane...${NC}"
 bash "${SCRIPTS_DIR}/node-setup.sh" "10.42.0.1/24" --server
 print_step "Node setup applied on control plane"
 
@@ -380,15 +424,15 @@ echo ""
 
 # Step 2: VNC Desktop (if enabled)
 if [[ "$INSTALL_VNC" =~ ^[Yy] ]]; then
-  echo -e "${CYAN}[2/14] Installing VNC desktop...${NC}"
+  echo -e "${CYAN}[2/16] Installing VNC desktop...${NC}"
   bash "${SCRIPTS_DIR}/install-vnc-desktop.sh" "$VNC_PASSWORD"
   print_step "VNC desktop installed"
 else
-  echo -e "${CYAN}[2/14] Skipping VNC desktop${NC}"
+  echo -e "${CYAN}[2/16] Skipping VNC desktop${NC}"
 fi
 
 # Step 3: OpenEBS LocalPV
-echo -e "${CYAN}[3/14] Installing OpenEBS LocalPV...${NC}"
+echo -e "${CYAN}[3/16] Installing OpenEBS LocalPV...${NC}"
 bash "${SCRIPTS_DIR}/openebs-install.sh"
 print_step "OpenEBS LocalPV installed"
 
@@ -437,14 +481,14 @@ fi
 
 print_header "Phase 3: Monitoring"
 
-# Step 4: Prometheus + Grafana
-if [[ "$INSTALL_MONITORING" =~ ^[Yy] ]]; then
-  echo -e "${CYAN}[4/14] Installing Prometheus + Grafana...${NC}"
-  kubectl apply -f "${K8S_DIR}/platform/grafana-prometheus.yaml"
-  wait_for_pods "monitoring" 300
-  print_step "Prometheus + Grafana installed"
+# Step 4: Beszel (hub + per-node agents)
+if [[ "$INSTALL_BESZEL" =~ ^[Yy] ]]; then
+  echo -e "${CYAN}[4/16] Installing Beszel...${NC}"
+  BESZEL_ADMIN_EMAIL="$BESZEL_ADMIN_EMAIL" BESZEL_ADMIN_PASSWORD="$BESZEL_ADMIN_PASSWORD" \
+    bash "${SCRIPTS_DIR}/beszel-bootstrap.sh"
+  print_step "Beszel installed"
 else
-  echo -e "${CYAN}[4/14] Skipping Prometheus + Grafana${NC}"
+  echo -e "${CYAN}[4/16] Skipping Beszel${NC}"
 fi
 
 # ============================================================================
@@ -455,7 +499,7 @@ print_header "Phase 4: Networking & Tunnels"
 
 # Step 5: Cloudflare Tunnel
 if [[ "$INSTALL_CLOUDFLARE" =~ ^[Yy] ]] && [ -n "$CLOUDFLARE_TOKEN" ]; then
-  echo -e "${CYAN}[5/14] Installing Cloudflare tunnel...${NC}"
+  echo -e "${CYAN}[5/16] Installing Cloudflare tunnel...${NC}"
   
   # Create namespace and secret
   kubectl create namespace cloudflared --dry-run=client -o yaml | kubectl apply -f -
@@ -468,19 +512,19 @@ if [[ "$INSTALL_CLOUDFLARE" =~ ^[Yy] ]] && [ -n "$CLOUDFLARE_TOKEN" ]; then
   wait_for_pods "cloudflared" 120
   print_step "Cloudflare tunnel installed"
 else
-  echo -e "${CYAN}[5/14] Skipping Cloudflare tunnel${NC}"
+  echo -e "${CYAN}[5/16] Skipping Cloudflare tunnel${NC}"
 fi
 
 # Step 6: Tailscale subnet router (host-level)
 if [[ "$INSTALL_TAILSCALE" =~ ^[Yy] ]] && [ -n "$TAILSCALE_AUTHKEY" ]; then
-  echo -e "${CYAN}[6/14] Installing Tailscale subnet router...${NC}"
+  echo -e "${CYAN}[6/16] Installing Tailscale subnet router...${NC}"
   TAILSCALE_AUTHKEY="$TAILSCALE_AUTHKEY" \
   TAILSCALE_ROUTES="$TAILSCALE_ROUTES" \
   TAILSCALE_HOSTNAME="$TAILSCALE_HOSTNAME" \
     bash "${SCRIPTS_DIR}/install-tailscale.sh"
   print_step "Tailscale subnet router installed"
 else
-  echo -e "${CYAN}[6/14] Skipping Tailscale subnet router${NC}"
+  echo -e "${CYAN}[6/16] Skipping Tailscale subnet router${NC}"
 fi
 
 # ============================================================================
@@ -491,17 +535,17 @@ print_header "Phase 5: Applications"
 
 # Step 7: Guacamole
 if [[ "$INSTALL_GUACAMOLE" =~ ^[Yy] ]]; then
-  echo -e "${CYAN}[7/14] Installing Guacamole...${NC}"
+  echo -e "${CYAN}[7/16] Installing Guacamole...${NC}"
   kubectl apply -f "${K8S_DIR}/apps/guacamole.yaml"
   wait_for_pods "guacamole" 180
   print_step "Guacamole installed"
 else
-  echo -e "${CYAN}[7/14] Skipping Guacamole${NC}"
+  echo -e "${CYAN}[7/16] Skipping Guacamole${NC}"
 fi
 
 # Step 8: OpenClaw
 if [[ "$INSTALL_OPENCLAW" =~ ^[Yy] ]]; then
-  echo -e "${CYAN}[8/14] Installing OpenClaw...${NC}"
+  echo -e "${CYAN}[8/16] Installing OpenClaw...${NC}"
 
   # Create the shared AI namespace if needed
   kubectl create namespace ai --dry-run=client -o yaml | kubectl apply -f -
@@ -523,12 +567,12 @@ if [[ "$INSTALL_OPENCLAW" =~ ^[Yy] ]]; then
   echo "  $GATEWAY_TOKEN"
   echo ""
 else
-  echo -e "${CYAN}[8/14] Skipping OpenClaw${NC}"
+  echo -e "${CYAN}[8/16] Skipping OpenClaw${NC}"
 fi
 
 # Step 9: AIOStreams
 if [[ "$INSTALL_AIOSTREAMS" =~ ^[Yy] ]]; then
-  echo -e "${CYAN}[9/14] Installing AIOStreams...${NC}"
+  echo -e "${CYAN}[9/16] Installing AIOStreams...${NC}"
 
   kubectl create namespace media --dry-run=client -o yaml | kubectl apply -f -
   AIOSTREAMS_SECRET_KEY=""
@@ -554,37 +598,82 @@ if [[ "$INSTALL_AIOSTREAMS" =~ ^[Yy] ]]; then
   echo -e "${YELLOW}AIOStreams SECRET_KEY is stored in secret aiostreams-env. Do not rotate it after first run.${NC}"
   echo ""
 else
-  echo -e "${CYAN}[9/14] Skipping AIOStreams${NC}"
+  echo -e "${CYAN}[9/16] Skipping AIOStreams${NC}"
 fi
 
-# Step 10: AdGuard Home
-if [[ "$INSTALL_ADGUARD" =~ ^[Yy] ]]; then
-  echo -e "${CYAN}[10/14] Installing AdGuard Home...${NC}"
-  kubectl apply -f "${K8S_DIR}/apps/adguard.yaml"
-  wait_for_pods "adguard" 180
-  print_step "AdGuard Home installed"
+# Step 10: MusicGrabber
+if [[ "$INSTALL_MUSICGRABBER" =~ ^[Yy] ]]; then
+  echo -e "${CYAN}[10/16] Installing MusicGrabber...${NC}"
+  kubectl apply -f "${K8S_DIR}/apps/musicgrabber.yaml"
+  # ~1 GB image, slow first pull on a Pi
+  wait_for_pods "media" 600
+  print_step "MusicGrabber installed"
+  echo ""
+  echo -e "${YELLOW}MusicGrabber has no login by default. Set an API key in Settings -> Security before exposing it publicly.${NC}"
+  echo ""
 else
-  echo -e "${CYAN}[10/14] Skipping AdGuard Home${NC}"
+  echo -e "${CYAN}[10/16] Skipping MusicGrabber${NC}"
 fi
 
-# Step 11: Portainer
+# Step 11: Stirling PDF
+if [[ "$INSTALL_STIRLING_PDF" =~ ^[Yy] ]]; then
+  echo -e "${CYAN}[11/16] Installing Stirling PDF...${NC}"
+  kubectl apply -f "${K8S_DIR}/apps/stirling-pdf.yaml"
+  # Large image and slow JVM start on a Pi
+  wait_for_pods "stirling-pdf" 600
+  print_step "Stirling PDF installed"
+else
+  echo -e "${CYAN}[11/16] Skipping Stirling PDF${NC}"
+fi
+
+# Step 12: changedetection.io
+if [[ "$INSTALL_CHANGEDETECTION" =~ ^[Yy] ]]; then
+  echo -e "${CYAN}[12/16] Installing changedetection.io...${NC}"
+  kubectl apply -f "${K8S_DIR}/apps/changedetection.yaml"
+  wait_for_pods "changedetection" 300
+  print_step "changedetection.io installed"
+else
+  echo -e "${CYAN}[12/16] Skipping changedetection.io${NC}"
+fi
+
+# Step 13: Transmute
+if [[ "$INSTALL_TRANSMUTE" =~ ^[Yy] ]]; then
+  echo -e "${CYAN}[13/16] Installing Transmute...${NC}"
+  TRANSMUTE_ADMIN_PASSWORD="$TRANSMUTE_ADMIN_PASSWORD" \
+    bash "${SCRIPTS_DIR}/transmute-bootstrap.sh"
+  print_step "Transmute installed"
+else
+  echo -e "${CYAN}[13/16] Skipping Transmute${NC}"
+fi
+
+# Step 14: CyberChef
+if [[ "$INSTALL_CYBERCHEF" =~ ^[Yy] ]]; then
+  echo -e "${CYAN}[14/16] Installing CyberChef...${NC}"
+  kubectl apply -f "${K8S_DIR}/apps/cyberchef.yaml"
+  wait_for_pods "cyberchef" 180
+  print_step "CyberChef installed"
+else
+  echo -e "${CYAN}[14/16] Skipping CyberChef${NC}"
+fi
+
+# Step 15: Portainer
 if [[ "$INSTALL_PORTAINER" =~ ^[Yy] ]]; then
-  echo -e "${CYAN}[11/14] Installing Portainer...${NC}"
+  echo -e "${CYAN}[15/16] Installing Portainer...${NC}"
   kubectl apply -f "${K8S_DIR}/platform/portainer.yaml"
   wait_for_pods "portainer" 180
   print_step "Portainer installed"
 else
-  echo -e "${CYAN}[11/14] Skipping Portainer${NC}"
+  echo -e "${CYAN}[15/16] Skipping Portainer${NC}"
 fi
 
-# Step 12: Dashboard
+# Step 16: Dashboard
 if [[ "$INSTALL_DASHBOARD" =~ ^[Yy] ]]; then
-  echo -e "${CYAN}[12/14] Installing Homepage dashboard...${NC}"
+  echo -e "${CYAN}[16/16] Installing Homepage dashboard...${NC}"
   kubectl apply -f "${K8S_DIR}/platform/dashboard.yaml"
   wait_for_pods "dashboard" 120
   print_step "Dashboard installed"
 else
-  echo -e "${CYAN}[12/14] Skipping Homepage dashboard${NC}"
+  echo -e "${CYAN}[16/16] Skipping Homepage dashboard${NC}"
 fi
 
 # ============================================================================
@@ -601,7 +690,7 @@ echo "All Pods:"
 kubectl get pods -A | head -30
 
 echo ""
-[[ "$INSTALL_DASHBOARD" =~ ^[Yy] ]] && echo "  Access your services:   http://pi-cluster.local"
+[[ "$INSTALL_DASHBOARD" =~ ^[Yy] ]] && echo "  Access your services:   http://pi-cluster.internal"
 echo ""
 
 echo -e "${GREEN}Done!${NC}"

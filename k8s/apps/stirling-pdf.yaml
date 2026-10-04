@@ -1,0 +1,155 @@
+# Stirling PDF - self-hosted PDF toolbox (merge, split, convert, OCR, sign, ...)
+# Web UI available at http://pi-cluster.internal:30808 (LAN) or http://stirling-pdf.local
+#
+# Standard image: includes LibreOffice, Tesseract and OCRmyPDF, with OCR models
+# for eng, fra, deu, por and chi_sim. Drop extra *.traineddata files into
+# tessdata/ on the PVC and restart to add languages.
+#
+# Login is disabled (SECURITY_ENABLELOGIN=false): keep it on the LAN, or enable
+# login before adding a Cloudflare route.
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: stirling-pdf
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: stirling-pdf-pvc
+  namespace: stirling-pdf
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: openebs-hostpath
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: stirling-pdf
+  namespace: stirling-pdf
+spec:
+  replicas: 1
+  revisionHistoryLimit: 3
+  selector:
+    matchLabels:
+      app: stirling-pdf
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: stirling-pdf
+    spec:
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: stirling-pdf
+          image: stirlingtools/stirling-pdf:3.0.2
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          env:
+            - name: SECURITY_ENABLELOGIN
+              value: "false"
+            - name: DISABLE_ADDITIONAL_FEATURES
+              value: "true"
+            - name: SYSTEM_DEFAULTLOCALE
+              value: en-US
+            - name: SYSTEM_MAXFILESIZE
+              value: "300"
+            - name: SYSTEM_GOOGLEVISIBILITY
+              value: "false"
+            - name: SHOW_SURVEY
+              value: "false"
+            # One LibreOffice worker at a time keeps conversions within Pi memory
+            - name: PROCESS_EXECUTOR_AUTO_UNO_SERVER
+              value: "true"
+            - name: PROCESS_EXECUTOR_SESSION_LIMIT_LIBRE_OFFICE_SESSION_LIMIT
+              value: "1"
+            - name: TZ
+              value: Europe/Paris
+          volumeMounts:
+            - name: configs
+              mountPath: /configs
+            - name: configs
+              mountPath: /usr/share/tessdata
+              subPath: tessdata
+            - name: tmp
+              mountPath: /tmp/stirling-pdf
+          resources:
+            requests:
+              memory: "896Mi"
+              cpu: "100m"
+            limits:
+              memory: "2Gi"
+              cpu: "2000m"
+          startupProbe:
+            httpGet:
+              path: /api/v1/info/status
+              port: 8080
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 60
+          readinessProbe:
+            httpGet:
+              path: /api/v1/info/status
+              port: 8080
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 5
+          livenessProbe:
+            httpGet:
+              path: /api/v1/info/status
+              port: 8080
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 5
+      volumes:
+        - name: configs
+          persistentVolumeClaim:
+            claimName: stirling-pdf-pvc
+        - name: tmp
+          emptyDir:
+            sizeLimit: 4Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: stirling-pdf-service
+  namespace: stirling-pdf
+spec:
+  type: NodePort
+  selector:
+    app: stirling-pdf
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 8080
+      nodePort: 30808
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: stirling-pdf-ingress
+  namespace: stirling-pdf
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: web
+spec:
+  rules:
+    - host: stirling-pdf.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: stirling-pdf-service
+                port:
+                  number: 80

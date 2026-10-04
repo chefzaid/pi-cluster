@@ -115,6 +115,7 @@ metadata:
   namespace: monitoring
 spec:
   replicas: 1
+  revisionHistoryLimit: 3
   strategy:
     type: Recreate
   selector:
@@ -129,7 +130,7 @@ spec:
       terminationGracePeriodSeconds: 20
       containers:
       - name: portainer
-        image: portainer/portainer-ce:2.39.6
+        image: portainer/portainer-ce:2.39.8
         imagePullPolicy: IfNotPresent
         args:
           - --http-enabled
@@ -140,8 +141,8 @@ spec:
           mountPath: /data
         resources:
           requests:
-            memory: "256Mi"
-            cpu: "100m"
+            memory: "64Mi"
+            cpu: "25m"
           limits:
             memory: "512Mi"
             cpu: "500m"

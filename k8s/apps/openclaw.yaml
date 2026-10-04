@@ -37,7 +37,7 @@ data:
   openclaw.json: |
     {
       "meta": {
-        "lastTouchedVersion": "2026.7.1",
+        "lastTouchedVersion": "2026.9.8",
         "lastTouchedAt": "2026-08-21T22:42:00.710Z"
       },
       "gateway": {
@@ -54,7 +54,7 @@ data:
           "allowInsecureAuth": true,
           "allowedOrigins": [
             "http://openclaw.local",
-            "http://pi-cluster.local:30789",
+            "http://pi-cluster.internal:30789",
             "http://192.168.1.191:30789",
             "http://192.168.1.192:30789",
             "http://192.168.1.193:30789",
@@ -85,6 +85,7 @@ metadata:
   namespace: ai
 spec:
   replicas: 1
+  revisionHistoryLimit: 3
   selector:
     matchLabels:
       app: openclaw
@@ -103,9 +104,10 @@ spec:
         fsGroupChangePolicy: OnRootMismatch
       terminationGracePeriodSeconds: 10
       initContainers:
-        # Seed config from ConfigMap into PVC on every startup
+        # Seed config from ConfigMap into PVC on every startup, then apply any
+        # state DB migrations a new release needs before the gateway starts
         - name: init-config
-          image: ghcr.io/openclaw/openclaw:2026.7.1-2
+          image: ghcr.io/openclaw/openclaw:2026.9.8
           imagePullPolicy: IfNotPresent
           command:
             - sh
@@ -115,12 +117,21 @@ spec:
               mkdir -p /home/node/.openclaw/workspace
               echo "Seeding config from ConfigMap (always overwrite)"
               cp /config/openclaw.json /home/node/.openclaw/openclaw.json
+              DB=/home/node/.openclaw/state/openclaw.sqlite
+              if [ -f "$DB" ]; then
+                VERSION=$(openclaw --version 2>/dev/null | grep -o '[0-9][0-9.]*' | head -1)
+                [ -f "$DB.pre-$VERSION" ] || cp "$DB" "$DB.pre-$VERSION"
+              fi
+              echo "Running safe migrations (openclaw doctor --fix --non-interactive)"
+              openclaw doctor --fix --non-interactive || echo "doctor reported issues; gateway will report details"
           volumeMounts:
             - name: data
               mountPath: /home/node/.openclaw
             - name: config
               mountPath: /config
               readOnly: true
+            - name: cache
+              mountPath: /home/node/.cache
             - name: tmp
               mountPath: /tmp
           securityContext:
@@ -136,11 +147,11 @@ spec:
               memory: "64Mi"
               cpu: "50m"
             limits:
-              memory: "128Mi"
-              cpu: "200m"
+              memory: "768Mi"
+              cpu: "1000m"
       containers:
         - name: openclaw
-          image: ghcr.io/openclaw/openclaw:2026.7.1-2
+          image: ghcr.io/openclaw/openclaw:2026.9.8
           imagePullPolicy: IfNotPresent
           command: ["node", "dist/index.js"]
           args: ["gateway"]
@@ -153,6 +164,8 @@ spec:
               mountPath: /home/node/.openclaw
             - name: npm-cache
               mountPath: /home/node/.npm
+            - name: cache
+              mountPath: /home/node/.cache
             - name: tmp
               mountPath: /tmp
           securityContext:
@@ -191,8 +204,8 @@ spec:
                   optional: true
           resources:
             requests:
-              memory: "512Mi"
-              cpu: "200m"
+              memory: "1Gi"
+              cpu: "100m"
             limits:
               memory: "2Gi"
               cpu: "1500m"
@@ -220,7 +233,7 @@ spec:
             periodSeconds: 10
             failureThreshold: 60
         - name: lan-proxy
-          image: ghcr.io/openclaw/openclaw:2026.7.1-2
+          image: ghcr.io/openclaw/openclaw:2026.9.8
           imagePullPolicy: IfNotPresent
           command: ["node", "-e"]
           args:
@@ -275,6 +288,8 @@ spec:
         - name: tmp
           emptyDir: {}
         - name: npm-cache
+          emptyDir: {}
+        - name: cache
           emptyDir: {}
 ---
 apiVersion: v1

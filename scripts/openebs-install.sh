@@ -7,8 +7,8 @@
 set -e
 
 OPENEBS_OPERATOR_URL="https://raw.githubusercontent.com/openebs/charts/73c22b2bd9df529b4ae96b1aeb40e468a6ad3a3c/openebs-operator-lite.yaml"
-OPENEBS_LOCALPV_VERSION="4.5.1"
-OPENEBS_LINUX_UTILS_VERSION="4.5.0"
+OPENEBS_LOCALPV_VERSION="4.6.0"
+OPENEBS_LINUX_UTILS_VERSION="4.6.0"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
@@ -25,9 +25,8 @@ fi
 echo "[1/3] Applying OpenEBS operator (lite)..."
 kubectl apply -f "$OPENEBS_OPERATOR_URL"
 
-# The legacy lite manifest still carries the final stable NDM release (2.1.0),
-# but its HostPath provisioner is older. Upgrade that independently to the
-# current stable LocalPV release used by OpenEBS 4.5.1.
+# The legacy lite manifest ships an older HostPath provisioner. Upgrade it
+# independently to the current stable LocalPV release (OpenEBS 4.6.0).
 kubectl -n openebs set image deployment/openebs-localpv-provisioner \
   openebs-provisioner-hostpath="openebs/provisioner-localpv:${OPENEBS_LOCALPV_VERSION}"
 kubectl -n openebs set env deployment/openebs-localpv-provisioner \
@@ -37,6 +36,15 @@ kubectl -n openebs patch deployment openebs-localpv-provisioner --type=json \
   -p='[{"op":"remove","path":"/spec/template/spec/containers/0/args"}]' 2>/dev/null || true
 kubectl -n openebs patch deployment openebs-localpv-provisioner --type=merge \
   -p="{\"metadata\":{\"labels\":{\"openebs.io/version\":\"${OPENEBS_LOCALPV_VERSION}\"}},\"spec\":{\"template\":{\"metadata\":{\"labels\":{\"openebs.io/version\":\"${OPENEBS_LOCALPV_VERSION}\"}}}}}"
+
+# The lite manifest also ships Node Disk Manager (NDM): a privileged DaemonSet,
+# exporters and an operator that discover raw block devices. Hostpath LocalPV
+# never uses them, so remove NDM to save ~100 MiB and 9 pods across the cluster.
+kubectl -n openebs delete daemonset openebs-ndm openebs-ndm-node-exporter --ignore-not-found
+kubectl -n openebs delete deployment openebs-ndm-operator openebs-ndm-cluster-exporter --ignore-not-found
+kubectl -n openebs delete service openebs-ndm-cluster-exporter-service openebs-ndm-node-exporter-service --ignore-not-found
+kubectl -n openebs delete configmap openebs-ndm-config --ignore-not-found
+kubectl delete crd blockdevices.openebs.io blockdeviceclaims.openebs.io --ignore-not-found
 
 # Step 2: Wait for the provisioner deployment
 echo ""

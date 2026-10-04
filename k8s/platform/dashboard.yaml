@@ -1,7 +1,7 @@
 # Dashboard - unified dashboard for all cluster services
-# Shows live health status, Prometheus widgets, and quick links
+# Shows live health status, cluster resources, and quick links
 # Stateless config via ConfigMaps - no PVC needed
-# Web UI available at http://pi-cluster.local
+# Web UI available at http://pi-cluster.internal
 ---
 apiVersion: v1
 kind: Namespace
@@ -95,24 +95,40 @@ data:
 
   services.yaml: |
     - Monitoring:
-        - Grafana:
-            icon: grafana
-            href: http://pi-cluster.local:30030
-            description: Cluster monitoring
+        - Beszel:
+            icon: beszel
+            href: http://pi-cluster.internal:30090
+            description: Node monitoring
         - Portainer:
             icon: portainer
-            href: http://pi-cluster.local:30900
+            href: http://pi-cluster.internal:30900
             description: Container management
 
     - Local Apps:
         - OpenClaw:
             icon: https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/openclaw.png
-            href: http://pi-cluster.local:30789
+            href: http://pi-cluster.internal:30789
             description: AI assistant agent
-        - AdGuard Home:
-            icon: adguard-home
-            href: http://pi-cluster.local:30303
-            description: DNS ad blocker
+        - MusicGrabber:
+            icon: mdi-music-circle
+            href: http://pi-cluster.internal:30382
+            description: Music downloader
+        - Stirling PDF:
+            icon: stirling-pdf
+            href: http://pi-cluster.internal:30808
+            description: PDF toolbox
+        - ChangeDetection:
+            icon: changedetection
+            href: http://pi-cluster.internal:30500
+            description: Website change alerts
+        - Transmute:
+            icon: mdi-file-swap
+            href: http://pi-cluster.internal:30313
+            description: File converter
+        - CyberChef:
+            icon: cyberchef
+            href: http://pi-cluster.internal:30888
+            description: Encode, decode, analyse
 
     - Public Apps:
         - AIOStreams:
@@ -134,9 +150,6 @@ data:
         - Tailscale Admin:
             - icon: tailscale
               href: https://login.tailscale.com/admin/machines
-        - OpenRouter Keys:
-            - icon: https://openrouter.ai/favicon.ico
-              href: https://openrouter.ai/keys
 
   docker.yaml: ""
   custom.css: ""
@@ -149,6 +162,7 @@ metadata:
   namespace: monitoring
 spec:
   replicas: 1
+  revisionHistoryLimit: 3
   selector:
     matchLabels:
       app: dashboard
@@ -171,7 +185,7 @@ spec:
               mountPath: /app-config
       containers:
         - name: dashboard
-          image: ghcr.io/gethomepage/homepage:v2.1.2
+          image: ghcr.io/gethomepage/homepage:v2.4.0
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 3000
@@ -183,7 +197,7 @@ spec:
               mountPath: /app/config
           resources:
             requests:
-              memory: "96Mi"
+              memory: "128Mi"
               cpu: "15m"
             limits:
               memory: "256Mi"
@@ -232,7 +246,7 @@ metadata:
     traefik.ingress.kubernetes.io/router.entrypoints: web
 spec:
   rules:
-    - host: pi-cluster.local
+    - host: pi-cluster.internal
       http:
         paths:
           - path: /

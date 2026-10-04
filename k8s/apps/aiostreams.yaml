@@ -38,6 +38,7 @@ metadata:
   namespace: media
 spec:
   replicas: 1
+  revisionHistoryLimit: 3
   selector:
     matchLabels:
       app: aiostreams
@@ -52,7 +53,7 @@ spec:
       terminationGracePeriodSeconds: 15
       containers:
         - name: aiostreams
-          image: ghcr.io/viren070/aiostreams:v2.33.2
+          image: ghcr.io/viren070/aiostreams:v2.35.9
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
@@ -69,8 +70,8 @@ spec:
               mountPath: /app/data
           resources:
             requests:
-              memory: "512Mi"
-              cpu: "200m"
+              memory: "256Mi"
+              cpu: "50m"
             limits:
               memory: "2Gi"
               cpu: "1000m"

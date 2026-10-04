@@ -108,5 +108,5 @@
 
     - name: Show AIOStreams access URL
       ansible.builtin.debug:
-        msg: "AIOStreams is available at {{ aiostreams_base_url }}/stremio/configure and http://pi-cluster.local:30300/stremio/configure"
+        msg: "AIOStreams is available at {{ aiostreams_base_url }}/stremio/configure and http://pi-cluster.internal:30300/stremio/configure"
       when: install_aiostreams
