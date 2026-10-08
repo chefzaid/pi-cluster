@@ -7,9 +7,11 @@ Setup for 4-nodes cluster of Raspberry Pi 4 to self-host a mini home lab and nec
 | Node       | Role          | IP              |
 |------------|---------------|-----------------|
 | pi-node-01 | Control plane | 192.168.1.191   |
-| pi-node-02 | Worker        | 192.168.1.192   |
-| pi-node-03 | Worker        | 192.168.1.193   |
+| pi-node-02 | Control plane | 192.168.1.192   |
+| pi-node-03 | Control plane | 192.168.1.193   |
 | pi-node-04 | Worker        | 192.168.1.194   |
+
+The 3 control planes run embedded etcd, so the cluster keeps working if any one of them goes down. To convert an older 1-server cluster (SQLite) to this layout, run `bash scripts/migrate-to-ha.sh` on pi-node-01 as your normal user.
 
 ## File Reference
 
@@ -23,7 +25,8 @@ Setup for 4-nodes cluster of Raspberry Pi 4 to self-host a mini home lab and nec
 
 | File                       | Purpose                                                                    |
 |----------------------------|----------------------------------------------------------------------------|
-| `install-k3s.sh`           | Install K3s control plane or join as worker node                           |
+| `install-k3s.sh`           | Install K3s control plane, join as extra control plane, or as worker node  |
+| `migrate-to-ha.sh`         | Convert a 1-server cluster to 3 control planes (etcd) + 1 worker, in place |
 | `node-setup.sh`            | Flannel fix + reboot cleanup service + UFW firewall + journald size cap    |
 | `install-vnc-desktop.sh`   | Install XFCE4 + TigerVNC + native Firefox DEB (for Guacamole)              |
 | `install-tailscale.sh`     | Install Tailscale and advertise home LAN route from Pi                     |
@@ -31,6 +34,7 @@ Setup for 4-nodes cluster of Raspberry Pi 4 to self-host a mini home lab and nec
 | `beszel-bootstrap.sh`      | Deploy Beszel hub, create admin, and register per-node agents              |
 | `beszel-set-password.sh`   | Change the Beszel admin password (user, database admin, and secret)        |
 | `transmute-bootstrap.sh`   | Deploy Transmute, pin its signing key, and create the admin account        |
+| `sabnzbd-bootstrap.sh`     | Deploy SABnzbd and set its login, hostname whitelist and download folders  |
 
 ### Configuration (`config/`)
 
@@ -50,7 +54,8 @@ Setup for 4-nodes cluster of Raspberry Pi 4 to self-host a mini home lab and nec
 | `apps/guacamole.yaml` | Guacamole all-in-one with a 1 GiB OpenEBS PVC |
 | `apps/openclaw.yaml` | OpenClaw AI assistant gateway with a 2 GiB OpenEBS PVC |
 | `apps/aiostreams.yaml` | AIOStreams Stremio addon aggregator with a 1 GiB OpenEBS PVC |
-| `apps/musicgrabber.yaml` | MusicGrabber music downloader with 1 GiB data and 20 GiB music OpenEBS PVCs |
+| `apps/musicgrabber.yaml` | MusicGrabber music downloader plus slskd (Soulseek) sidecar, with 1 GiB data, 20 GiB music and 20 GiB slskd OpenEBS PVCs |
+| `apps/sabnzbd.yaml` | SABnzbd Usenet downloader with 1 GiB config and 30 GiB downloads OpenEBS PVCs |
 | `apps/stirling-pdf.yaml` | Stirling PDF toolbox (OCR, LibreOffice conversions) with a 1 GiB OpenEBS PVC |
 | `apps/changedetection.yaml` | changedetection.io website change monitoring with a 2 GiB OpenEBS PVC |
 | `apps/transmute.yaml` | Transmute file converter and compressor (guest access) with a 5 GiB OpenEBS PVC |
@@ -420,6 +425,12 @@ MusicGrabber searches YouTube, SoundCloud, Monochrome and other sources and down
 MusicGrabber is installed only if you answer `y` to the installer prompt. To deploy it on an existing cluster:
 
 ```bash
+kubectl create secret generic slskd-env -n media \
+  --from-literal=SLSKD_SLSK_USERNAME=<unused-soulseek-user> \
+  --from-literal=SLSKD_SLSK_PASSWORD=<soulseek-pass> \
+  --from-literal=SLSKD_USERNAME=admin \
+  --from-literal=SLSKD_PASSWORD=<web-ui-pass> \
+  --from-literal=SLSKD_JWT_KEY=$(openssl rand -hex 32)
 kubectl apply -f k8s/apps/musicgrabber.yaml
 ```
 
@@ -427,7 +438,40 @@ Open <http://pi-cluster.internal:30382> (or `http://musicgrabber.local` with a h
 
 Everything else (Navidrome/Jellyfin refresh, notifications, search sources, cookies) is configured in the **Settings** tab. The app has no login by default, so keep it on the LAN, or set an API key / admin user under **Settings** → **Security** before adding a Cloudflare route.
 
+### Soulseek (slskd)
+
+MusicGrabber's Soulseek source goes through [slskd](https://github.com/slskd/slskd), which runs as a sidecar in the same pod. MusicGrabber calls the slskd API on `localhost:5030` and copies finished files from slskd's downloads folder, which is shared between the two containers through `slskd-pvc` (mounted at `/slskd/downloads` in MusicGrabber).
+
+- The `slskd-env` secret holds the Soulseek network account (registered automatically on first login, so the username must be unused) and the slskd web UI login. The installer generates it; read it back with `kubectl get secret slskd-env -n media -o jsonpath='{.data}'` and base64-decode the values.
+- The installer fills in **Settings** → **Soulseek** for you. To do it by hand, use URL `http://localhost:5030`, the web UI user/password from the secret, downloads path `/slskd/downloads`, and enable the source.
+- slskd web UI: <http://pi-cluster.internal:30530> (or `http://slskd.local`).
+- slskd shares its completed downloads back to the network. Forward TCP `30534` on your router to any node so peers can connect in. It works without this, but fewer peers can reach you.
+- MusicGrabber copies files rather than moving them, so tracks stay in slskd's downloads (and keep being shared) until you clean them up in the slskd UI.
+
 See the [MusicGrabber README](https://gitlab.com/g33kphr33k/musicgrabber) for details.
+
+---
+
+## Setting up SABnzbd
+
+[SABnzbd](https://sabnzbd.org) downloads from Usenet using NZB files.
+
+It is installed only if you answer `y` to the installer prompt; the installer runs `scripts/sabnzbd-bootstrap.sh`, which you can also run on its own:
+
+```bash
+SABNZBD_PASSWORD='your-password' bash scripts/sabnzbd-bootstrap.sh
+```
+
+The script creates the `media/sabnzbd-env` secret (username `admin`, password from `SABNZBD_PASSWORD` or generated), deploys SABnzbd, and sets the web login, the hostname whitelist (`pi-cluster.internal`, `sabnzbd.local`) and the download folders through the API. To read the password:
+
+```bash
+kubectl get secret -n media sabnzbd-env -o jsonpath='{.data.WEB_PASSWORD}' | base64 -d; echo
+```
+
+Open <http://pi-cluster.internal:30850> (or `http://sabnzbd.local`) and add your Usenet provider under **Config** → **Servers** (the first-run wizard asks for it too). SABnzbd needs a paid provider account and an NZB indexer, neither of which the cluster provides.
+
+- Unfinished jobs go to `/downloads/incomplete` and finished ones to `/downloads/complete`, both on `sabnzbd-downloads-pvc`; settings live on `sabnzbd-config-pvc` (`/config`)
+- To open it from another hostname, add that name under **Config** → **Special** → `host_whitelist`
 
 ---
 

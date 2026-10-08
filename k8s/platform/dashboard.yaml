@@ -109,26 +109,34 @@ data:
             icon: https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/openclaw.png
             href: http://pi-cluster.internal:30789
             description: AI assistant agent
-        - MusicGrabber:
-            icon: mdi-music-circle
-            href: http://pi-cluster.internal:30382
-            description: Music downloader
         - Stirling PDF:
             icon: stirling-pdf
             href: http://pi-cluster.internal:30808
             description: PDF toolbox
-        - ChangeDetection:
-            icon: changedetection
-            href: http://pi-cluster.internal:30500
-            description: Website change alerts
         - Transmute:
             icon: mdi-file-swap
             href: http://pi-cluster.internal:30313
             description: File converter
+        - MusicGrabber:
+            icon: mdi-music-circle
+            href: http://pi-cluster.internal:30382
+            description: Music downloader
+        - slskd:
+            icon: slskd
+            href: http://pi-cluster.internal:30530
+            description: Soulseek client
+        - SABnzbd:
+            icon: sabnzbd
+            href: http://pi-cluster.internal:30850
+            description: Usenet downloader
         - CyberChef:
             icon: cyberchef
             href: http://pi-cluster.internal:30888
             description: Encode, decode, analyse
+        - ChangeDetection:
+            icon: changedetection
+            href: http://pi-cluster.internal:30500
+            description: Website change alerts
 
     - Public Apps:
         - AIOStreams:
@@ -170,6 +178,8 @@ spec:
     metadata:
       labels:
         app: dashboard
+      # The init container copies the ConfigMap once at start: after editing it,
+      # run `kubectl -n monitoring rollout restart deploy/dashboard`
     spec:
       serviceAccountName: dashboard
       terminationGracePeriodSeconds: 10

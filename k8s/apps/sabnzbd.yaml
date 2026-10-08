@@ -1,0 +1,147 @@
+# SABnzbd - Usenet (NZB) downloader
+# Web UI available at http://pi-cluster.internal:30850 (LAN) or http://sabnzbd.local
+#
+# Bootstrap with scripts/sabnzbd-bootstrap.sh (also run by install-cluster.sh).
+# It creates secret sabnzbd-env (WEB_USERNAME, WEB_PASSWORD), applies this
+# manifest, then sets the web login, the hostname whitelist and the download
+# folders through the SABnzbd API.
+#
+# You still need a Usenet provider account: add it under Config -> Servers
+# (or the first-run wizard) along with an indexer of your choice.
+#
+# Downloads land on sabnzbd-downloads-pvc: incomplete jobs in
+# /downloads/incomplete, finished ones in /downloads/complete.
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: media
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: sabnzbd-config-pvc
+  namespace: media
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: openebs-hostpath
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: sabnzbd-downloads-pvc
+  namespace: media
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: openebs-hostpath
+  resources:
+    requests:
+      storage: 30Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sabnzbd
+  namespace: media
+spec:
+  replicas: 1
+  revisionHistoryLimit: 3
+  selector:
+    matchLabels:
+      app: sabnzbd
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: sabnzbd
+    spec:
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: sabnzbd
+          image: lscr.io/linuxserver/sabnzbd:5.1.3
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          env:
+            - name: PUID
+              value: "1000"
+            - name: PGID
+              value: "1000"
+            - name: TZ
+              value: Europe/Paris
+          volumeMounts:
+            - name: config
+              mountPath: /config
+            - name: downloads
+              mountPath: /downloads
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "50m"
+            limits:
+              memory: "1Gi"
+              cpu: "2000m"
+          # Probe by IP: SABnzbd's hostname check only applies to named hosts
+          startupProbe:
+            tcpSocket:
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 30
+          livenessProbe:
+            tcpSocket:
+              port: 8080
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 5
+      volumes:
+        - name: config
+          persistentVolumeClaim:
+            claimName: sabnzbd-config-pvc
+        - name: downloads
+          persistentVolumeClaim:
+            claimName: sabnzbd-downloads-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: sabnzbd-service
+  namespace: media
+spec:
+  type: NodePort
+  selector:
+    app: sabnzbd
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 8080
+      nodePort: 30850
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: sabnzbd-ingress
+  namespace: media
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: web
+spec:
+  rules:
+    - host: sabnzbd.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: sabnzbd-service
+                port:
+                  number: 80

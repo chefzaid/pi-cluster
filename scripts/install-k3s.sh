@@ -1,13 +1,17 @@
 #!/bin/bash
 # K3s Installation Script (Minimal)
 # ==================================
-# Installs K3s on a Raspberry Pi 4 as control plane (server) or worker (agent).
+# Installs K3s on a Raspberry Pi 4 as the first control plane (server with
+# embedded etcd), an additional control plane (server-join), or worker (agent).
 # This script ONLY installs K3s - config and node setup are handled by
 # 00_full_cluster_install.sh or can be applied manually.
 #
 # Usage:
-#   Control plane:  sudo bash install-k3s.sh
-#   Worker node:    sudo bash install-k3s.sh worker <SERVER_IP> <TOKEN>
+#   First control plane:  sudo bash install-k3s.sh
+#   Extra control plane:  sudo bash install-k3s.sh server-join <SERVER_IP> <TOKEN>
+#   Worker node:          sudo bash install-k3s.sh worker <SERVER_IP> <TOKEN>
+#
+# Run 3 control planes (etcd quorum survives 1 failure) and the rest as workers.
 #
 # Note: For full automated cluster setup, use 00_full_cluster_install.sh instead.
 
@@ -17,6 +21,22 @@ K3S_VERSION="${K3S_VERSION:-v1.36.3+k3s1}"
 NODE_ROLE="${1:-server}"
 SERVER_IP="${2:-}"
 TOKEN="${3:-}"
+
+# Additional control plane join (embedded etcd member)
+if [ "$NODE_ROLE" = "server-join" ]; then
+  if [ -z "$SERVER_IP" ] || [ -z "$TOKEN" ]; then
+    echo "Usage: sudo bash install-k3s.sh server-join <SERVER_IP> <TOKEN>"
+    exit 1
+  fi
+
+  echo "=== K3s Control Plane Join ==="
+  echo "Joining etcd cluster at: ${SERVER_IP}"
+  curl -sfL https://get.k3s.io | INSTALL_K3S_VERSION="${K3S_VERSION}" K3S_TOKEN="${TOKEN}" \
+    sh -s - server --server "https://${SERVER_IP}:6443"
+  echo ""
+  echo "=== K3s server joined ==="
+  exit 0
+fi
 
 # Worker node join
 if [ "$NODE_ROLE" = "worker" ]; then
@@ -38,7 +58,7 @@ echo "=== K3s Control Plane Installation ==="
 echo "Node: $(hostname)"
 
 echo "[1/2] Installing K3s..."
-curl -sfL https://get.k3s.io | INSTALL_K3S_VERSION="${K3S_VERSION}" sh -
+curl -sfL https://get.k3s.io | INSTALL_K3S_VERSION="${K3S_VERSION}" sh -s - server --cluster-init
 
 echo "[2/2] Waiting for K3s to be ready..."
 sleep 5
@@ -64,5 +84,7 @@ echo ""
 echo "Join token:"
 echo "  ${TOKEN}"
 echo ""
+echo "Control plane join command (run on 2 more nodes for etcd quorum):"
+echo "  sudo bash install-k3s.sh server-join ${SERVER_IP} <TOKEN>"
 echo "Worker join command:"
 echo "  sudo bash install-k3s.sh worker ${SERVER_IP} <TOKEN>"

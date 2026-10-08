@@ -1,7 +1,9 @@
 # K3s config optimized for Raspberry Pi 4 cluster
 # Place at /etc/rancher/k3s/config.yaml on ALL nodes.
 #
-# For the SERVER node, this file is used as-is.
+# Topology: 3 servers (pi-node-01..03, embedded etcd quorum) + 1 agent (pi-node-04).
+# For SERVER nodes, this file is used as-is. The first server also gets
+# `cluster-init: true` (added by the install script), joining servers get --server.
 # For AGENT (worker) nodes, the install script extracts only the kubelet-arg
 # section (agents reject server-only keys like kube-apiserver-arg).
 
@@ -39,6 +41,15 @@ kube-controller-manager-arg:
 kube-apiserver-arg:
   - "default-not-ready-toleration-seconds=30"
   - "default-unreachable-toleration-seconds=30"
+
+# ──────────────────────────────────────────────
+# Embedded etcd - tolerate SD card fsync latency
+#   Applies to: servers only; must be identical on all 3 servers
+# ──────────────────────────────────────────────
+# Defaults (100ms/1000ms) cause spurious leader elections on slow SD cards.
+etcd-arg:
+  - "heartbeat-interval=500"
+  - "election-timeout=5000"
 
 # Server only (ignored by agents)
 write-kubeconfig-mode: "0644"
