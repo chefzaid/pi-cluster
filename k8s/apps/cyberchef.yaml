@@ -8,13 +8,13 @@
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: cyberchef
+  name: utilities
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: cyberchef
-  namespace: cyberchef
+  namespace: utilities
 spec:
   replicas: 1
   revisionHistoryLimit: 3
@@ -64,7 +64,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: cyberchef-service
-  namespace: cyberchef
+  namespace: utilities
 spec:
   type: NodePort
   selector:
@@ -79,7 +79,7 @@ apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
   name: cyberchef-ingress
-  namespace: cyberchef
+  namespace: utilities
   annotations:
     traefik.ingress.kubernetes.io/router.entrypoints: web
 spec:

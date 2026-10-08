@@ -670,7 +670,7 @@ if [[ "$INSTALL_STIRLING_PDF" =~ ^[Yy] ]]; then
   echo -e "${CYAN}[12/17] Installing Stirling PDF...${NC}"
   kubectl apply -f "${K8S_DIR}/apps/stirling-pdf.yaml"
   # Large image and slow JVM start on a Pi
-  wait_for_pods "stirling-pdf" 600
+  wait_for_pods "utilities" 600 "app=stirling-pdf"
   print_step "Stirling PDF installed"
 else
   echo -e "${CYAN}[12/17] Skipping Stirling PDF${NC}"
@@ -680,7 +680,7 @@ fi
 if [[ "$INSTALL_CHANGEDETECTION" =~ ^[Yy] ]]; then
   echo -e "${CYAN}[13/17] Installing changedetection.io...${NC}"
   kubectl apply -f "${K8S_DIR}/apps/changedetection.yaml"
-  wait_for_pods "changedetection" 300
+  wait_for_pods "utilities" 300 "app=changedetection"
   print_step "changedetection.io installed"
 else
   echo -e "${CYAN}[13/17] Skipping changedetection.io${NC}"
@@ -700,7 +700,7 @@ fi
 if [[ "$INSTALL_CYBERCHEF" =~ ^[Yy] ]]; then
   echo -e "${CYAN}[15/17] Installing CyberChef...${NC}"
   kubectl apply -f "${K8S_DIR}/apps/cyberchef.yaml"
-  wait_for_pods "cyberchef" 180
+  wait_for_pods "utilities" 180 "app=cyberchef"
   print_step "CyberChef installed"
 else
   echo -e "${CYAN}[15/17] Skipping CyberChef${NC}"

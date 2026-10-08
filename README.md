@@ -491,9 +491,9 @@ Open <http://pi-cluster.internal:30808> (or `http://stirling-pdf.local` with a h
 - The image ships OCR models for English, French, German, Portuguese and Simplified Chinese. To add another language, copy its `*.traineddata` file from [tessdata](https://github.com/tesseract-ocr/tessdata) into the PVC's `tessdata/` folder and restart:
 
   ```bash
-  POD=$(kubectl get pod -n stirling-pdf -l app=stirling-pdf -o name)
-  kubectl cp ara.traineddata stirling-pdf/${POD#pod/}:/usr/share/tessdata/
-  kubectl rollout restart deploy/stirling-pdf -n stirling-pdf
+  POD=$(kubectl get pod -n utilities -l app=stirling-pdf -o name)
+  kubectl cp ara.traineddata utilities/${POD#pod/}:/usr/share/tessdata/
+  kubectl rollout restart deploy/stirling-pdf -n utilities
   ```
 
 - Login is disabled and uploads are capped at 300 MB. Keep it on the LAN, or set `SECURITY_ENABLELOGIN=true` in the manifest before adding a Cloudflare route.
@@ -535,19 +535,19 @@ Open <http://pi-cluster.internal:30313> (or `http://transmute.local` with a host
 
 Transmute cannot run with no accounts at all. Guest access (`ALLOW_UNAUTHENTICATED=true`) only becomes available once an admin exists, so the bootstrap script:
 
-1. Creates the `transmute/transmute-env` secret with a fixed `AUTH_SECRET_KEY` and the admin credentials (username `admin`, password from `TRANSMUTE_ADMIN_PASSWORD` or generated)
+1. Creates the `utilities/transmute-env` secret with a fixed `AUTH_SECRET_KEY` and the admin credentials (username `admin`, password from `TRANSMUTE_ADMIN_PASSWORD` or generated)
 2. Deploys Transmute and creates the admin account, so no visitor can claim it
 
 The fixed signing key matters: without it Transmute generates a new one on every start, which signs everyone out and orphans guest sessions. The admin account is only needed for settings and user management. To read its password:
 
 ```bash
-kubectl get secret -n transmute transmute-env -o jsonpath='{.data.ADMIN_PASSWORD}' | base64 -d; echo
+kubectl get secret -n utilities transmute-env -o jsonpath='{.data.ADMIN_PASSWORD}' | base64 -d; echo
 ```
 
 To change it, sign in as `admin` → **Account**, then keep the secret in sync:
 
 ```bash
-kubectl -n transmute patch secret transmute-env --type=merge -p '{"stringData":{"ADMIN_PASSWORD":"new-password"}}'
+kubectl -n utilities patch secret transmute-env --type=merge -p '{"stringData":{"ADMIN_PASSWORD":"new-password"}}'
 ```
 
 - Files live on `transmute-pvc` (`/app/data`) and are cleaned up automatically by Transmute

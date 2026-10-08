@@ -15,7 +15,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 MANIFEST="${REPO_ROOT}/k8s/apps/transmute.yaml"
-NS="transmute"
+NS="utilities"
 URL="${TRANSMUTE_URL:-http://127.0.0.1:30313}"
 
 secret_value() {
