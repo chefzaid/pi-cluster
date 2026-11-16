@@ -155,9 +155,6 @@ data:
         - Cloudflare Dashboard:
             - icon: cloudflare
               href: https://one.dash.cloudflare.com/
-        - Tailscale Admin:
-            - icon: tailscale
-              href: https://login.tailscale.com/admin/machines
 
   docker.yaml: ""
   custom.css: ""
@@ -195,7 +192,7 @@ spec:
               mountPath: /app-config
       containers:
         - name: dashboard
-          image: ghcr.io/gethomepage/homepage:v2.4.0
+          image: ghcr.io/gethomepage/homepage:v2.8.0
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 3000

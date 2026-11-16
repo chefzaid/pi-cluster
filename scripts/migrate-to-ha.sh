@@ -22,7 +22,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 K3S_CONFIG="$REPO_ROOT/config/k3s/config.yaml"
-K3S_VERSION="${K3S_VERSION:-v1.36.3+k3s1}"
+K3S_VERSION="${K3S_VERSION:-v1.37.2+k3s1}"
 FIRST_SERVER="pi-node-01"
 FIRST_SERVER_IP="192.168.1.191"
 JOIN_NODES=("pi-node-02:192.168.1.192" "pi-node-03:192.168.1.193")

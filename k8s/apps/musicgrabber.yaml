@@ -95,7 +95,7 @@ spec:
       terminationGracePeriodSeconds: 30
       containers:
         - name: musicgrabber
-          image: g33kphr33k/musicgrabber:4.3.0
+          image: g33kphr33k/musicgrabber:4.5.4
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
@@ -150,7 +150,7 @@ spec:
             timeoutSeconds: 10
             failureThreshold: 5
         - name: slskd
-          image: slskd/slskd:0.26.0
+          image: slskd/slskd:0.26.2
           imagePullPolicy: IfNotPresent
           ports:
             - name: slskd-http

@@ -17,7 +17,7 @@
 
 set -e
 
-K3S_VERSION="${K3S_VERSION:-v1.36.3+k3s1}"
+K3S_VERSION="${K3S_VERSION:-v1.37.2+k3s1}"
 NODE_ROLE="${1:-server}"
 SERVER_IP="${2:-}"
 TOKEN="${3:-}"

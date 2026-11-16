@@ -27,9 +27,12 @@ The 3 control planes run embedded etcd, so the cluster keeps working if any one 
 |----------------------------|----------------------------------------------------------------------------|
 | `install-k3s.sh`           | Install K3s control plane, join as extra control plane, or as worker node  |
 | `migrate-to-ha.sh`         | Convert a 1-server cluster to 3 control planes (etcd) + 1 worker, in place |
-| `node-setup.sh`            | Flannel fix + reboot cleanup service + UFW firewall + journald size cap    |
-| `install-vnc-desktop.sh`   | Install XFCE4 + TigerVNC + native Firefox DEB (for Guacamole)              |
-| `install-tailscale.sh`     | Install Tailscale and advertise home LAN route from Pi                     |
+| `node-setup.sh`            | Flannel fix + reboot cleanup service + UFW firewall + journald size cap + containerd AppArmor profile, then runs `node-tuning.sh` |
+| `node-tuning.sh`           | Memory/perf tuning: zram swap, kubelet LimitedSwap, K3s GOMEMLIMIT, unneeded daemons off, noatime, smaller GPU memory reservation |
+| `install-vnc-desktop.sh`   | Install XFCE4 + TigerVNC + native Firefox DEB (for Guacamole), then runs `vnc-desktop-trim.sh` |
+| `vnc-desktop-trim.sh`      | Disable the HDMI login screen, printing, bluetooth, NetworkManager and evolution on the VNC node |
+| `disable-wifi.sh`          | Remove WiFi from netplan and turn the radio off on a node wired over Ethernet |
+| `node-cleanup.sh`          | Free disk space: unused images, old K3s data, kernel leftovers, old snap revisions, rotated logs |
 | `openebs-install.sh`       | Install OpenEBS LocalPV provisioner                                        |
 | `beszel-bootstrap.sh`      | Deploy Beszel hub, create admin, and register per-node agents              |
 | `beszel-set-password.sh`   | Change the Beszel admin password (user, database admin, and secret)        |
@@ -97,6 +100,29 @@ The script will:
 
 ---
 
+## Node Memory and Performance Tuning
+
+`scripts/node-tuning.sh` runs from `node-setup.sh` on every node and is safe to re-run (`sudo bash scripts/node-tuning.sh`):
+
+| Change | Why |
+|--------|-----|
+| zram swap (zstd, half of RAM, max 2 GB) + `vm.swappiness=100`, `vm.page-cluster=0` | Compressed RAM swap gives idle pages somewhere to go instead of OOM kills |
+| Kubelet `LimitedSwap` (`/var/lib/rancher/k3s/agent/etc/kubelet.conf.d/10-pi-cluster-swap.conf`) | Burstable pods may swap a share proportional to their memory request; Guaranteed pods never swap |
+| `GOMEMLIMIT` (400 MiB servers, 160 MiB agent) and `MemorySwapMax=0` on the K3s unit | Caps Go heap growth of K3s/containerd and keeps etcd out of swap |
+| fwupd, ModemManager, udisks2, iscsid, rsyslog masked; snapd purged when no snap is installed | 150-250 MB of daemons a headless node does not use; journald already keeps the logs |
+| `noatime` on `/` | Fewer SD card writes |
+| `dtoverlay=vc4-kms-v3d,cma-64` and `gpu_mem=16` in `config.txt` (next reboot) | Shrinks the GPU reservations from 512 MB CMA + 76 MB to 64 MB + 16 MB |
+
+On the VNC node, `scripts/vnc-desktop-trim.sh` (run by `install-vnc-desktop.sh`) boots to `multi-user.target` and disables lightdm, printing, bluetooth, colord, NetworkManager (netplan uses systemd-networkd) and evolution-data-server. The TigerVNC session used by Guacamole is unaffected.
+
+**WiFi:** the Ubuntu image joins WiFi from the cloud-init `network-config`, giving each node a second address on `wlan0`. K3s and flannel only use `eth0`. `sudo bash scripts/disable-wifi.sh` removes `wlan0` from netplan, stops cloud-init from writing it back, and adds `dtoverlay=disable-wifi` to `config.txt`; it refuses to run when `eth0` has no address or default route.
+
+**Cleanup:** `sudo bash scripts/node-cleanup.sh` is safe to re-run on any node. It removes the duplicate `/etc/logrotate.d/cloud-init` (both `cloud-init` and `cloud-init-base` ship one, which makes `logrotate.service` fail), leftover kernel packages and module directories (installed kernels are kept), disabled snap revisions, rotated logs, K3s binary backups, unpacked data of old K3s versions, and container images no container on the node uses.
+
+**AppArmor on newer kernels:** from Ubuntu raspi kernel 7.0.0-1023, container processes carry the stacked label `cri-containerd.apparmor.d//&unconfined`, and containerd's built-in profile then denies signals and `/proc` reads between processes of the same container. Symptoms: `gosu` spinning at 100% CPU, .NET apps (slskd) failing probes, OpenClaw `doctor` never exiting, `kill: Permission denied` as root inside a container. `node-setup.sh` installs a fixed copy of the profile in `/etc/apparmor.d/cri-containerd.apparmor.d`; containerd reuses an already-loaded profile of that name.
+
+---
+
 ## Setting up Cloudflare Tunnel
 
 Cloudflared exposes your cluster services to the internet through a Cloudflare Tunnel (no port forwarding needed).
@@ -139,76 +165,9 @@ Add a one-time-password gate so only authorized users can reach your services. *
 
 ---
 
-## Tailscale bridge for dedicated server
-
-If you host Guacamole on an dedicated server, use the Pi control-plane node as a **Tailscale subnet router** so the DS can reach your home LAN (for example your laptop at `192.168.1.50`).
-
-### Topology
-
-- Dedicated Server (Guacamole) joins your Tailnet
-- Pi control plane joins the same Tailnet and advertises `192.168.1.0/24`
-- Guacamole on dedicated server connects to your laptop using its **home LAN IP**
-
-### 1) Create a Tailscale auth key
-
-1. Open [Tailscale admin](https://login.tailscale.com/admin/settings/keys)
-2. Create an auth key (`tskey-auth-...`)
-3. Keep it ready for the full installer prompt
-
-### 2) Install/configure Tailscale on the Pi (subnet router)
-
-Run the full installer and enable:
-
-- `Install Tailscale subnet router on this Pi?` → `y`
-- `Home LAN routes to advertise` → `192.168.1.0/24` (or your LAN CIDR)
-- `Tailscale hostname` → e.g. `pi-lan-gateway`
-- `Tailscale auth key` → your `tskey-auth-...`
-
-Or run manually:
-
-```bash
-sudo TAILSCALE_AUTHKEY="tskey-auth-..." \
-   TAILSCALE_ROUTES="192.168.1.0/24" \
-   TAILSCALE_HOSTNAME="pi-lan-gateway" \
-   bash install-tailscale-subnet-router.sh
-```
-
-### 3) Approve advertised route in Tailscale admin
-
-Approve the route in the admin console (most common cause) - [Tailscale admin → Machines](https://login.tailscale.com/admin/machines) → find the Pi → `...` → **Edit route settings** → enable `192.168.1.0/24`
-
-### 4) Join the dedicated server to the same Tailnet
-
-On the Dedicated Server (DS):
-
-```bash
-curl -fsSL https://tailscale.com/install.sh | sh
-sudo tailscale up --authkey "tskey-auth-..." --accept-routes --accept-dns=false
-tailscale status
-```
-
-`--accept-routes` is required so the DS learns `192.168.1.0/24` via the Pi.
-
-### 5) Configure Guacamole on DS
-
-In Guacamole (running on the DS), create your RDP/VNC/SSH connection with:
-
-- **Hostname** = laptop/home host LAN IP (example `192.168.1.50`)
-- **Port/protocol** = usual LAN service port (`3389`, `22`, `5901`, etc.)
-
-Traffic path will be: `DS (Tailnet) -> Pi subnet router -> Home LAN host`.
-
-### Troubleshooting
-
-- On DS, verify route exists: `ip route | grep 192.168.1.0/24`
-- On Pi, verify Tailscale state: `tailscale status`
-- Ensure target laptop firewall allows the protocol from your LAN
-
----
-
 ## Setting up Beszel
 
-[Beszel](https://beszel.dev) monitors every node: CPU, memory, load, temperatures, SD card usage and I/O, network traffic, and systemd services (`k3s`, `k3s-agent`, `tailscaled`, `ssh`, `ufw`, `vncserver@1`, ...). It replaces the old Grafana + Prometheus stack and uses a fraction of the memory.
+[Beszel](https://beszel.dev) monitors every node: CPU, memory, load, temperatures, SD card usage and I/O, network traffic, and systemd services (`k3s`, `k3s-agent`, `ssh`, `ufw`, `vncserver@1`, ...). It replaces the old Grafana + Prometheus stack and uses a fraction of the memory.
 
 The installer asks for an admin email and password (leave the password empty to generate one). It then runs `scripts/beszel-bootstrap.sh`, which you can also run on its own:
 
@@ -255,7 +214,7 @@ Agents are not affected by password changes: they connect with their own token.
 
 How the agents are set up:
 
-- They use the host network, so they report the real `eth0`, `wlan0`, `tailscale0` and CNI interfaces
+- They use the host network, so they report the real `eth0` and CNI interfaces
 - They connect out to the hub over WebSocket (`DISABLE_SSH=true`), so no inbound port is opened on the nodes
 - Root disk stats come from the SD card (`FILESYSTEM=mmcblk0p2`)
 - Each node's fingerprint is kept in `/var/lib/beszel-agent`, so a restarted agent reconnects as the same system instead of creating a duplicate
@@ -577,4 +536,3 @@ Open <http://pi-cluster.internal:30888> (or `http://cyberchef.local` with a host
 3. **Beszel / Transmute:** If the installer generated an admin password, change it (`scripts/beszel-set-password.sh`; Transmute **Account** page)
 4. **AIOStreams:** Use a stable `BASE_URL`; changing it later can break generated install URLs
 5. **Cloudflare Access:** Set up email OTP, at least for `remote` and `aiostreams` subdomains
-6. **Tailscale:** Approve the advertised route in Tailscale admin so your DS can reach the home LAN

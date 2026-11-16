@@ -6,6 +6,10 @@
 #   2. Reboot cleanup service - auto-cleans stale pods on boot (control plane)
 #   3. UFW firewall - secures node while allowing K3s traffic (all nodes)
 #   4. Journald size cap - limits logs to 200 MB to spare the SD card (all nodes)
+#   5. containerd AppArmor profile that works on stacked-label kernels (all nodes)
+#   6. Memory/performance tuning via node-tuning.sh (all nodes): zram swap,
+#      kubelet LimitedSwap, K3s GOMEMLIMIT, unneeded daemons off, noatime,
+#      smaller GPU memory reservation (on next reboot)
 #
 # Usage: Run on EACH node with the correct subnet:
 #   sudo bash node-setup.sh <SUBNET>             # worker nodes
@@ -275,15 +279,94 @@ echo ""
 echo "=== Capping systemd journal size ==="
 # Default journald keeps up to 10% of the disk (several GB on a 64 GB card) and
 # the constant writes wear SD cards; 200 MB is plenty for troubleshooting.
+# Storage=persistent: without /var/log/journal, journald keeps the logs in /run,
+# i.e. in RAM.
 mkdir -p /etc/systemd/journald.conf.d
 cat > /etc/systemd/journald.conf.d/pi-cluster.conf <<'JOURNALEOF'
 [Journal]
+Storage=persistent
 SystemMaxUse=200M
 SystemMaxFileSize=50M
+RuntimeMaxUse=32M
 JOURNALEOF
 systemctl restart systemd-journald
+journalctl --flush >/dev/null 2>&1 || true
 journalctl --vacuum-size=200M >/dev/null 2>&1 || true
 echo "  Journal capped at 200M"
+echo ""
+
+echo "=== AppArmor profile for containers ==="
+# Kernels that label container processes as a stack (cri-containerd.apparmor.d//&unconfined,
+# e.g. Ubuntu raspi 7.0.0-1023) deny signals between processes of the same container
+# under containerd's built-in profile, which hangs gosu, .NET apps, timeout, etc.
+# containerd reuses an already-loaded profile of the same name, so ship a fixed copy
+# that apparmor.service loads at boot, before K3s starts.
+if [ -d /etc/apparmor.d ] && command -v apparmor_parser &>/dev/null; then
+  cat > /etc/apparmor.d/cri-containerd.apparmor.d <<'PROFILE'
+# containerd's default container profile (same name, so containerd uses this one
+# instead of generating its own) plus one rule for kernels that label container
+# processes as a stack, cri-containerd.apparmor.d//&unconfined (Ubuntu raspi
+# 7.0.0-1023): signalling such a peer also needs send permission to "unconfined".
+# Without it gosu (Go setuid), .NET runtimes, timeout and supervisors inside
+# containers cannot signal their own processes and hang, and ps/pgrep fail.
+#include <tunables/global>
+
+profile cri-containerd.apparmor.d flags=(attach_disconnected,mediate_deleted) {
+  #include <abstractions/base>
+
+  network,
+  capability,
+  file,
+  umount,
+  # Host (privileged) processes may send signals to container processes.
+  signal (receive) peer=unconfined,
+  # Manager may send signals to container processes.
+  signal (receive) peer=cri-containerd.apparmor.d,
+  # Container processes may send signals amongst themselves.
+  signal (send,receive) peer=cri-containerd.apparmor.d,
+  # Stacked-label kernels: peers carry an extra "unconfined" component
+  signal (send) peer=unconfined,
+
+  deny @{PROC}/* w,   # deny write for all files directly in /proc (not in a subdir)
+  # deny write to files not in /proc/<number>/** or /proc/sys/**
+  deny @{PROC}/{[^1-9],[^1-9][^0-9],[^1-9s][^0-9y][^0-9s],[^1-9][^0-9][^0-9][^0-9/]*}/** w,
+  deny @{PROC}/sys/[^k]** w,  # deny /proc/sys except /proc/sys/k* (effectively /proc/sys/kernel)
+  deny @{PROC}/sys/kernel/{?,??,[^s][^h][^m]**} w,  # deny everything except shm* in /proc/sys/kernel/
+  deny @{PROC}/sysrq-trigger rwklx,
+  deny @{PROC}/kcore rwklx,
+
+  deny mount,
+
+  deny /sys/[^f]*/** wklx,
+  deny /sys/f[^s]*/** wklx,
+  deny /sys/fs/[^c]*/** wklx,
+  deny /sys/fs/c[^g]*/** wklx,
+  deny /sys/fs/cg[^r]*/** wklx,
+  deny /sys/firmware/** rwklx,
+  deny /sys/devices/virtual/powercap/** rwklx,
+  deny /sys/kernel/security/** rwklx,
+
+  # suppress ptrace denials when using 'ps' inside a container
+  ptrace (trace,read,tracedby,readby) peer=cri-containerd.apparmor.d,
+  # Stacked-label kernels: reading a peer's /proc entries (ps, pgrep) also
+  # needs read permission to the "unconfined" component
+  ptrace (read,readby) peer=unconfined,
+}
+PROFILE
+  apparmor_parser -r -W /etc/apparmor.d/cri-containerd.apparmor.d
+  echo "  cri-containerd.apparmor.d installed and loaded"
+else
+  echo "  AppArmor not available, skipping"
+fi
+echo ""
+
+echo "=== Memory and performance tuning ==="
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+if [ -f "${SCRIPT_DIR}/node-tuning.sh" ]; then
+  bash "${SCRIPT_DIR}/node-tuning.sh"
+else
+  echo "  node-tuning.sh not found next to node-setup.sh, skipping"
+fi
 echo ""
 
 echo "=== Node setup complete ==="
@@ -293,6 +376,8 @@ echo "  - flannel-subnet-fix.service (ensures /run/flannel/subnet.env on boot)"
 [ "$IS_SERVER" = true ] && echo "  - k3s-reboot-cleanup.service (cleans Unknown pods after reboot)"
 echo "  - UFW firewall (K3s-compatible rules)"
 echo "  - Journald size cap (200M)"
+echo "  - cri-containerd AppArmor profile (signals inside containers on newer kernels)"
+echo "  - zram swap, LimitedSwap, K3s GOMEMLIMIT, trimmed daemons (reboot once for GPU memory changes)"
 echo ""
 echo "Run order for each node:"
 echo "  pi-node-01: sudo bash '02 - node-setup.sh' 10.42.0.1/24 --server"

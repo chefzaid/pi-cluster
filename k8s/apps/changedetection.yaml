@@ -48,7 +48,7 @@ spec:
       terminationGracePeriodSeconds: 30
       containers:
         - name: changedetection
-          image: ghcr.io/dgtlmoon/changedetection.io:0.60.8
+          image: ghcr.io/dgtlmoon/changedetection.io:0.70.3
           imagePullPolicy: IfNotPresent
           ports:
             - name: http

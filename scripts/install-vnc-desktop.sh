@@ -349,6 +349,13 @@ if [ "${VNC_STATUS}" != "active" ]; then
   echo "  Logs:  journalctl -u vncserver@1 -n 20"
 fi
 echo ""
+# Drop the HDMI login screen and laptop daemons the VNC session does not need
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+if [ -f "${SCRIPT_DIR}/vnc-desktop-trim.sh" ]; then
+  bash "${SCRIPT_DIR}/vnc-desktop-trim.sh" "${SUDO_USER_NAME}"
+  echo ""
+fi
+
 echo "  Management:"
 echo "    Start:   sudo systemctl start vncserver@1"
 echo "    Stop:    sudo systemctl stop vncserver@1"

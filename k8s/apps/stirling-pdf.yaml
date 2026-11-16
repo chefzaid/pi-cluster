@@ -48,7 +48,7 @@ spec:
       terminationGracePeriodSeconds: 30
       containers:
         - name: stirling-pdf
-          image: stirlingtools/stirling-pdf:3.0.2
+          image: stirlingtools/stirling-pdf:3.3.0
           imagePullPolicy: IfNotPresent
           ports:
             - name: http

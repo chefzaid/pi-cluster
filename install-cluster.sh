@@ -133,6 +133,7 @@ run_on_worker() {
   sshpass -p "$ssh_pass" scp -o StrictHostKeyChecking=no \
     "${SCRIPTS_DIR}/install-k3s.sh" \
     "${SCRIPTS_DIR}/node-setup.sh" \
+    "${SCRIPTS_DIR}/node-tuning.sh" \
     "$K3S_CONFIG" \
     "${ssh_user}@${worker_ip}:/tmp/"
   
@@ -187,7 +188,8 @@ REQUIRED_SCRIPTS=(
   "install-k3s.sh"
   "node-setup.sh"
   "install-vnc-desktop.sh"
-  "install-tailscale.sh"
+  "node-tuning.sh"
+  "vnc-desktop-trim.sh"
   "openebs-install.sh"
   "beszel-bootstrap.sh"
   "transmute-bootstrap.sh"
@@ -271,23 +273,6 @@ if [[ "$INSTALL_CLOUDFLARE" =~ ^[Yy] ]]; then
       break
     fi
     print_warning "Cloudflare token cannot be empty when Cloudflare install is enabled"
-  done
-fi
-echo ""
-
-# Tailscale (Pi as subnet router for dedicated server access)
-echo -e "${CYAN}Tailscale Subnet Router${NC}"
-prompt_input INSTALL_TAILSCALE "Install Tailscale subnet router on this Pi? (y/n)" "y"
-if [[ "$INSTALL_TAILSCALE" =~ ^[Yy] ]]; then
-  prompt_input TAILSCALE_ROUTES "Home LAN routes to advertise" "192.168.1.0/24"
-  prompt_input TAILSCALE_HOSTNAME "Tailscale hostname" "$(hostname)-pi-gateway"
-  echo "Create an auth key from: https://login.tailscale.com/admin/settings/keys"
-  while true; do
-    prompt_input TAILSCALE_AUTHKEY "Tailscale auth key (tskey-auth-...)" "" true
-    if [ -n "$TAILSCALE_AUTHKEY" ]; then
-      break
-    fi
-    print_warning "Tailscale auth key cannot be empty when Tailscale install is enabled"
   done
 fi
 echo ""
@@ -383,11 +368,10 @@ echo ""
 print_header "Installation Summary"
 echo "The following will be installed:"
 echo "  - K3s (control plane, embedded etcd; first 2 other nodes join as control planes)"
-echo "  - Node setup (flannel fix, firewall, cleanup service)"
+echo "  - Node setup (flannel fix, firewall, cleanup service, zram + memory tuning)"
 echo "  - OpenEBS LocalPV (local storage)"
 [[ "$INSTALL_VNC" =~ ^[Yy] ]] && echo "  - VNC desktop"
 [[ "$INSTALL_CLOUDFLARE" =~ ^[Yy] ]] && echo "  - Cloudflare tunnel"
-[[ "$INSTALL_TAILSCALE" =~ ^[Yy] ]] && echo "  - Tailscale subnet router (${TAILSCALE_ROUTES})"
 [[ "$INSTALL_GUACAMOLE" =~ ^[Yy] ]] && echo "  - Guacamole (remote desktop gateway)"
 [[ "$INSTALL_OPENCLAW" =~ ^[Yy] ]] && echo "  - OpenClaw (AI assistant gateway)"
 [[ "$INSTALL_AIOSTREAMS" =~ ^[Yy] ]] && echo "  - AIOStreams (Stremio addon aggregator)"
@@ -419,18 +403,18 @@ fi
 print_header "Phase 1: Core Infrastructure"
 
 # Step 1a: Apply K3s config BEFORE installation
-echo -e "${CYAN}[1a/17] Applying K3s configuration...${NC}"
+echo -e "${CYAN}[1a/16] Applying K3s configuration...${NC}"
 mkdir -p /etc/rancher/k3s
 cp "$K3S_CONFIG" /etc/rancher/k3s/config.yaml
 print_step "K3s config applied"
 
 # Step 1b: Install K3s
-echo -e "${CYAN}[1b/17] Installing K3s...${NC}"
+echo -e "${CYAN}[1b/16] Installing K3s...${NC}"
 bash "${SCRIPTS_DIR}/install-k3s.sh"
 print_step "K3s installed"
 
 # Step 1c: Node setup on control plane
-echo -e "${CYAN}[1c/17] Running node setup on control plane...${NC}"
+echo -e "${CYAN}[1c/16] Running node setup on control plane...${NC}"
 bash "${SCRIPTS_DIR}/node-setup.sh" "10.42.0.1/24" --server
 print_step "Node setup applied on control plane"
 
@@ -443,15 +427,15 @@ echo ""
 
 # Step 2: VNC Desktop (if enabled)
 if [[ "$INSTALL_VNC" =~ ^[Yy] ]]; then
-  echo -e "${CYAN}[2/17] Installing VNC desktop...${NC}"
+  echo -e "${CYAN}[2/16] Installing VNC desktop...${NC}"
   bash "${SCRIPTS_DIR}/install-vnc-desktop.sh" "$VNC_PASSWORD"
   print_step "VNC desktop installed"
 else
-  echo -e "${CYAN}[2/17] Skipping VNC desktop${NC}"
+  echo -e "${CYAN}[2/16] Skipping VNC desktop${NC}"
 fi
 
 # Step 3: OpenEBS LocalPV
-echo -e "${CYAN}[3/17] Installing OpenEBS LocalPV...${NC}"
+echo -e "${CYAN}[3/16] Installing OpenEBS LocalPV...${NC}"
 bash "${SCRIPTS_DIR}/openebs-install.sh"
 print_step "OpenEBS LocalPV installed"
 
@@ -504,12 +488,12 @@ print_header "Phase 3: Monitoring"
 
 # Step 4: Beszel (hub + per-node agents)
 if [[ "$INSTALL_BESZEL" =~ ^[Yy] ]]; then
-  echo -e "${CYAN}[4/17] Installing Beszel...${NC}"
+  echo -e "${CYAN}[4/16] Installing Beszel...${NC}"
   BESZEL_ADMIN_EMAIL="$BESZEL_ADMIN_EMAIL" BESZEL_ADMIN_PASSWORD="$BESZEL_ADMIN_PASSWORD" \
     bash "${SCRIPTS_DIR}/beszel-bootstrap.sh"
   print_step "Beszel installed"
 else
-  echo -e "${CYAN}[4/17] Skipping Beszel${NC}"
+  echo -e "${CYAN}[4/16] Skipping Beszel${NC}"
 fi
 
 # ============================================================================
@@ -520,7 +504,7 @@ print_header "Phase 4: Networking & Tunnels"
 
 # Step 5: Cloudflare Tunnel
 if [[ "$INSTALL_CLOUDFLARE" =~ ^[Yy] ]] && [ -n "$CLOUDFLARE_TOKEN" ]; then
-  echo -e "${CYAN}[5/17] Installing Cloudflare tunnel...${NC}"
+  echo -e "${CYAN}[5/16] Installing Cloudflare tunnel...${NC}"
   
   # Create namespace and secret
   kubectl create namespace cloudflared --dry-run=client -o yaml | kubectl apply -f -
@@ -533,19 +517,7 @@ if [[ "$INSTALL_CLOUDFLARE" =~ ^[Yy] ]] && [ -n "$CLOUDFLARE_TOKEN" ]; then
   wait_for_pods "cloudflared" 120
   print_step "Cloudflare tunnel installed"
 else
-  echo -e "${CYAN}[5/17] Skipping Cloudflare tunnel${NC}"
-fi
-
-# Step 6: Tailscale subnet router (host-level)
-if [[ "$INSTALL_TAILSCALE" =~ ^[Yy] ]] && [ -n "$TAILSCALE_AUTHKEY" ]; then
-  echo -e "${CYAN}[6/17] Installing Tailscale subnet router...${NC}"
-  TAILSCALE_AUTHKEY="$TAILSCALE_AUTHKEY" \
-  TAILSCALE_ROUTES="$TAILSCALE_ROUTES" \
-  TAILSCALE_HOSTNAME="$TAILSCALE_HOSTNAME" \
-    bash "${SCRIPTS_DIR}/install-tailscale.sh"
-  print_step "Tailscale subnet router installed"
-else
-  echo -e "${CYAN}[6/17] Skipping Tailscale subnet router${NC}"
+  echo -e "${CYAN}[5/16] Skipping Cloudflare tunnel${NC}"
 fi
 
 # ============================================================================
@@ -554,19 +526,19 @@ fi
 
 print_header "Phase 5: Applications"
 
-# Step 7: Guacamole
+# Step 6: Guacamole
 if [[ "$INSTALL_GUACAMOLE" =~ ^[Yy] ]]; then
-  echo -e "${CYAN}[7/17] Installing Guacamole...${NC}"
+  echo -e "${CYAN}[6/16] Installing Guacamole...${NC}"
   kubectl apply -f "${K8S_DIR}/apps/guacamole.yaml"
   wait_for_pods "guacamole" 180
   print_step "Guacamole installed"
 else
-  echo -e "${CYAN}[7/17] Skipping Guacamole${NC}"
+  echo -e "${CYAN}[6/16] Skipping Guacamole${NC}"
 fi
 
-# Step 8: OpenClaw
+# Step 7: OpenClaw
 if [[ "$INSTALL_OPENCLAW" =~ ^[Yy] ]]; then
-  echo -e "${CYAN}[8/17] Installing OpenClaw...${NC}"
+  echo -e "${CYAN}[7/16] Installing OpenClaw...${NC}"
 
   # Create the shared AI namespace if needed
   kubectl create namespace ai --dry-run=client -o yaml | kubectl apply -f -
@@ -588,12 +560,12 @@ if [[ "$INSTALL_OPENCLAW" =~ ^[Yy] ]]; then
   echo "  $GATEWAY_TOKEN"
   echo ""
 else
-  echo -e "${CYAN}[8/17] Skipping OpenClaw${NC}"
+  echo -e "${CYAN}[7/16] Skipping OpenClaw${NC}"
 fi
 
-# Step 9: AIOStreams
+# Step 8: AIOStreams
 if [[ "$INSTALL_AIOSTREAMS" =~ ^[Yy] ]]; then
-  echo -e "${CYAN}[9/17] Installing AIOStreams...${NC}"
+  echo -e "${CYAN}[8/16] Installing AIOStreams...${NC}"
 
   kubectl create namespace media --dry-run=client -o yaml | kubectl apply -f -
   AIOSTREAMS_SECRET_KEY=""
@@ -619,12 +591,12 @@ if [[ "$INSTALL_AIOSTREAMS" =~ ^[Yy] ]]; then
   echo -e "${YELLOW}AIOStreams SECRET_KEY is stored in secret aiostreams-env. Do not rotate it after first run.${NC}"
   echo ""
 else
-  echo -e "${CYAN}[9/17] Skipping AIOStreams${NC}"
+  echo -e "${CYAN}[8/16] Skipping AIOStreams${NC}"
 fi
 
-# Step 10: MusicGrabber
+# Step 9: MusicGrabber
 if [[ "$INSTALL_MUSICGRABBER" =~ ^[Yy] ]]; then
-  echo -e "${CYAN}[10/17] Installing MusicGrabber...${NC}"
+  echo -e "${CYAN}[9/16] Installing MusicGrabber...${NC}"
 
   # slskd sidecar (Soulseek source). Keep existing credentials on re-runs: the
   # Soulseek account is registered to its password on first login.
@@ -661,79 +633,79 @@ httpx.put("http://localhost:8080/api/settings", json={
   echo -e "${YELLOW}slskd web UI: http://pi-cluster.internal:30530 (login in secret slskd-env). Forward TCP 30534 on your router for better Soulseek results.${NC}"
   echo ""
 else
-  echo -e "${CYAN}[10/17] Skipping MusicGrabber${NC}"
+  echo -e "${CYAN}[9/16] Skipping MusicGrabber${NC}"
 fi
 
-# Step 11: SABnzbd
+# Step 10: SABnzbd
 if [[ "$INSTALL_SABNZBD" =~ ^[Yy] ]]; then
-  echo -e "${CYAN}[11/17] Installing SABnzbd...${NC}"
+  echo -e "${CYAN}[10/16] Installing SABnzbd...${NC}"
   SABNZBD_PASSWORD="$SABNZBD_PASSWORD" bash "${SCRIPTS_DIR}/sabnzbd-bootstrap.sh"
   print_step "SABnzbd installed"
 else
-  echo -e "${CYAN}[11/17] Skipping SABnzbd${NC}"
+  echo -e "${CYAN}[10/16] Skipping SABnzbd${NC}"
 fi
 
-# Step 12: Stirling PDF
+# Step 11: Stirling PDF
 if [[ "$INSTALL_STIRLING_PDF" =~ ^[Yy] ]]; then
-  echo -e "${CYAN}[12/17] Installing Stirling PDF...${NC}"
+  echo -e "${CYAN}[11/16] Installing Stirling PDF...${NC}"
   kubectl apply -f "${K8S_DIR}/apps/stirling-pdf.yaml"
   # Large image and slow JVM start on a Pi
   wait_for_pods "utilities" 600 "app=stirling-pdf"
   print_step "Stirling PDF installed"
 else
-  echo -e "${CYAN}[12/17] Skipping Stirling PDF${NC}"
+  echo -e "${CYAN}[11/16] Skipping Stirling PDF${NC}"
 fi
 
-# Step 13: changedetection.io
+# Step 12: changedetection.io
 if [[ "$INSTALL_CHANGEDETECTION" =~ ^[Yy] ]]; then
-  echo -e "${CYAN}[13/17] Installing changedetection.io...${NC}"
+  echo -e "${CYAN}[12/16] Installing changedetection.io...${NC}"
   kubectl apply -f "${K8S_DIR}/apps/changedetection.yaml"
   wait_for_pods "utilities" 300 "app=changedetection"
   print_step "changedetection.io installed"
 else
-  echo -e "${CYAN}[13/17] Skipping changedetection.io${NC}"
+  echo -e "${CYAN}[12/16] Skipping changedetection.io${NC}"
 fi
 
-# Step 14: Transmute
+# Step 13: Transmute
 if [[ "$INSTALL_TRANSMUTE" =~ ^[Yy] ]]; then
-  echo -e "${CYAN}[14/17] Installing Transmute...${NC}"
+  echo -e "${CYAN}[13/16] Installing Transmute...${NC}"
   TRANSMUTE_ADMIN_PASSWORD="$TRANSMUTE_ADMIN_PASSWORD" \
     bash "${SCRIPTS_DIR}/transmute-bootstrap.sh"
   print_step "Transmute installed"
 else
-  echo -e "${CYAN}[14/17] Skipping Transmute${NC}"
+  echo -e "${CYAN}[13/16] Skipping Transmute${NC}"
 fi
 
-# Step 15: CyberChef
+# Step 14: CyberChef
 if [[ "$INSTALL_CYBERCHEF" =~ ^[Yy] ]]; then
-  echo -e "${CYAN}[15/17] Installing CyberChef...${NC}"
+  echo -e "${CYAN}[14/16] Installing CyberChef...${NC}"
   kubectl apply -f "${K8S_DIR}/apps/cyberchef.yaml"
   wait_for_pods "utilities" 180 "app=cyberchef"
   print_step "CyberChef installed"
 else
-  echo -e "${CYAN}[15/17] Skipping CyberChef${NC}"
+  echo -e "${CYAN}[14/16] Skipping CyberChef${NC}"
 fi
 
-# Step 16: Portainer
+# Step 15: Portainer
 if [[ "$INSTALL_PORTAINER" =~ ^[Yy] ]]; then
-  echo -e "${CYAN}[16/17] Installing Portainer...${NC}"
+  echo -e "${CYAN}[15/16] Installing Portainer...${NC}"
   kubectl apply -f "${K8S_DIR}/platform/portainer.yaml"
   wait_for_pods "portainer" 180
   print_step "Portainer installed"
 else
-  echo -e "${CYAN}[16/17] Skipping Portainer${NC}"
+  echo -e "${CYAN}[15/16] Skipping Portainer${NC}"
 fi
 
-# Step 17: Dashboard
+# Step 16: Dashboard
 if [[ "$INSTALL_DASHBOARD" =~ ^[Yy] ]]; then
-  echo -e "${CYAN}[17/17] Installing Homepage dashboard...${NC}"
+  echo -e "${CYAN}[16/16] Installing Homepage dashboard...${NC}"
   kubectl apply -f "${K8S_DIR}/platform/dashboard.yaml"
   # Config is copied at pod start, so pick up changes on re-runs
   kubectl -n monitoring rollout restart deploy/dashboard
   wait_for_pods "dashboard" 120
   print_step "Dashboard installed"
 else
-  echo -e "${CYAN}[17/17] Skipping Homepage dashboard${NC}"
+  echo -e "${CYAN}[16/16] Skipping Homepage dashboard${NC}"
 fi
 
 # ============================================================================

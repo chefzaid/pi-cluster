@@ -10,7 +10,7 @@
 # one system per node, named after the node.
 #
 # Per node: CPU, memory, load, temperatures, SD card usage and I/O, network,
-# and systemd services (k3s, tailscale, ...). Container stats need a Docker or
+# and systemd services (k3s, ssh, vncserver, ...). Container stats need a Docker or
 # Podman socket, which k3s (containerd) does not provide.
 ---
 apiVersion: v1
@@ -53,7 +53,7 @@ spec:
       terminationGracePeriodSeconds: 15
       containers:
         - name: beszel
-          image: henrygd/beszel:0.21.0
+          image: henrygd/beszel:0.21.2
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
@@ -162,7 +162,7 @@ spec:
         - operator: Exists
       containers:
         - name: beszel-agent
-          image: henrygd/beszel-agent:0.21.0
+          image: henrygd/beszel-agent:0.21.2
           imagePullPolicy: IfNotPresent
           env:
             - name: SYSTEM_NAME

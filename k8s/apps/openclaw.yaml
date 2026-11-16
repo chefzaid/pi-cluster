@@ -37,8 +37,11 @@ data:
   openclaw.json: |
     {
       "meta": {
-        "lastTouchedVersion": "2026.9.8",
-        "lastTouchedAt": "2026-08-21T22:42:00.710Z"
+        "lastTouchedVersion": "2026.11.3",
+        "migrations": {
+          "modelPolicyAllowlist": true,
+          "utilityModelSeparation": true
+        }
       },
       "gateway": {
         "port": 18789,
@@ -50,7 +53,6 @@ data:
         "trustedProxies": ["127.0.0.1/32", "::1/128"],
         "controlUi": {
           "enabled": true,
-          "dangerouslyDisableDeviceAuth": true,
           "allowInsecureAuth": true,
           "allowedOrigins": [
             "http://openclaw.local",
@@ -74,6 +76,9 @@ data:
           "model": {
             "primary": "openrouter/moonshotai/kimi-k3"
           }
+        },
+        "entries": {
+          "main": {}
         }
       }
     }
@@ -96,7 +101,7 @@ spec:
       labels:
         app: openclaw
       annotations:
-        checksum/openclaw-config: "3bc7fda65891742b0b3e0ddf0b1de9140a39dca12a2f094b3e9eaad6b14d4409"
+        checksum/openclaw-config: "f7110d62499b6e21fe404f572a56da3ed79cca615ba5ffbe970da213a8f21e9b"
     spec:
       automountServiceAccountToken: false
       securityContext:
@@ -104,10 +109,34 @@ spec:
         fsGroupChangePolicy: OnRootMismatch
       terminationGracePeriodSeconds: 10
       initContainers:
+        # emptyDir /tmp is created 2777 (fsGroup, no sticky bit); OpenClaw's plugin
+        # installer refuses such a temp root, so give it standard /tmp permissions
+        - name: fix-tmp
+          image: busybox:1.38.0
+          imagePullPolicy: IfNotPresent
+          command: ["chmod", "1777", "/tmp"]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+          securityContext:
+            runAsUser: 0
+            runAsNonRoot: false
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              memory: "8Mi"
+              cpu: "10m"
+            limits:
+              memory: "16Mi"
+              cpu: "100m"
         # Seed config from ConfigMap into PVC on every startup, then apply any
-        # state DB migrations a new release needs before the gateway starts
+        # state DB migrations a new release needs and update installed plugins
+        # (e.g. whatsapp) to match the core, before the gateway starts
         - name: init-config
-          image: ghcr.io/openclaw/openclaw:2026.9.8
+          image: ghcr.io/openclaw/openclaw:2026.11.3
           imagePullPolicy: IfNotPresent
           command:
             - sh
@@ -123,13 +152,19 @@ spec:
                 [ -f "$DB.pre-$VERSION" ] || cp "$DB" "$DB.pre-$VERSION"
               fi
               echo "Running safe migrations (openclaw doctor --fix --non-interactive)"
-              openclaw doctor --fix --non-interactive || echo "doctor reported issues; gateway will report details"
+              # doctor can hang on exit after its cleanup step fails, so cap it;
+              # a normal run (incl. schema migrations) takes 3-8 min on a Pi 4
+              timeout -k 30 900 openclaw doctor --fix --non-interactive || echo "doctor reported issues or timed out; gateway will report details"
+              echo "Updating installed plugins to match this release (openclaw plugins update --all)"
+              timeout -k 30 900 openclaw plugins update --all || echo "plugin update failed or timed out; gateway will report plugin load errors"
           volumeMounts:
             - name: data
               mountPath: /home/node/.openclaw
             - name: config
               mountPath: /config
               readOnly: true
+            - name: npm-cache
+              mountPath: /home/node/.npm
             - name: cache
               mountPath: /home/node/.cache
             - name: tmp
@@ -147,11 +182,11 @@ spec:
               memory: "64Mi"
               cpu: "50m"
             limits:
-              memory: "768Mi"
+              memory: "1536Mi"       # doctor migrations crawl at the old 768Mi limit
               cpu: "1000m"
       containers:
         - name: openclaw
-          image: ghcr.io/openclaw/openclaw:2026.9.8
+          image: ghcr.io/openclaw/openclaw:2026.11.3
           imagePullPolicy: IfNotPresent
           command: ["node", "dist/index.js"]
           args: ["gateway"]
@@ -233,7 +268,7 @@ spec:
             periodSeconds: 10
             failureThreshold: 60
         - name: lan-proxy
-          image: ghcr.io/openclaw/openclaw:2026.9.8
+          image: ghcr.io/openclaw/openclaw:2026.11.3
           imagePullPolicy: IfNotPresent
           command: ["node", "-e"]
           args:
